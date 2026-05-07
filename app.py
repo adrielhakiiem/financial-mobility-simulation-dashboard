@@ -11,6 +11,7 @@ DATA_PATH = Path("data/processed/final_dataset.csv")
 MODELS_DIR = Path("models")
 METRICS_PATH = MODELS_DIR / "metrics.csv"
 TARGET_COL = "income_median"
+TARGET_LABEL = "Median household income"
 
 MODEL_FILES = {
     "Linear": "linear_model.pkl",
@@ -23,13 +24,22 @@ FEATURE_GROUPS = {
     "Infrastructure": ["piped_water", "sanitation", "electricity"],
 }
 
+FEATURE_LABELS = {
+    "poverty_absolute": "Absolute poverty rate (%)",
+    "poverty_relative": "Relative poverty rate (%)",
+    "gini": "Income inequality (Gini)",
+    "piped_water": "Piped water access (%)",
+    "sanitation": "Improved sanitation access (%)",
+    "electricity": "Electricity access (%)",
+}
+
 FEATURE_HELP = {
-    "poverty_absolute": "Absolute poverty rate (%) for the selected district and year.",
-    "poverty_relative": "Relative poverty rate (%) for the selected district and year.",
-    "gini": "Gini coefficient (income inequality index).",
-    "piped_water": "Share of households with piped water access (%).",
-    "sanitation": "Share of households with improved sanitation (%).",
-    "electricity": "Share of households with electricity access (%).",
+    "poverty_absolute": "Share of households below the absolute poverty line.",
+    "poverty_relative": "Share of households below the relative poverty line.",
+    "gini": "How uneven income distribution is. Higher means more inequality.",
+    "piped_water": "Share of households with piped water access.",
+    "sanitation": "Share of households with improved sanitation.",
+    "electricity": "Share of households with electricity access.",
 }
 
 
@@ -37,38 +47,95 @@ def apply_custom_style() -> None:
     st.markdown(
         """
         <style>
+        :root {
+            --bg: #0f172a;
+            --panel: #111f33;
+            --panel-soft: #13243b;
+            --border: #1f334d;
+            --text: #e5edf5;
+            --muted: #9bb0c4;
+            --accent: #7fb7b1;
+            --accent-2: #b6c7d6;
+            --highlight: #f6bd60;
+            --danger: #ef6f6c;
+            --spacing-unit: 1rem;
+        }
+        .stApp {
+            background: radial-gradient(circle at top left, #14253b 0%, #0f172a 55%, #0d1323 100%);
+            color: var(--text);
+            padding: var(--spacing-unit);
+        }
         .block-container {
-            padding-top: 1.4rem;
-            padding-bottom: 1.6rem;
+            padding: calc(var(--spacing-unit) * 1.5);
             max-width: 1200px;
         }
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: calc(var(--spacing-unit) * 1.5);
+        }
+        h2 {
+            font-size: 2rem;
+            margin-bottom: calc(var(--spacing-unit) * 1.2);
+        }
+        h3 {
+            font-size: 1.5rem;
+            margin-bottom: var(--spacing-unit);
+        }
+        .section-title {
+            font-size: 1.25rem;
+            margin-bottom: calc(var(--spacing-unit) * 0.8);
+        }
+        .section-subtitle {
+            font-size: 1rem;
+            margin-bottom: calc(var(--spacing-unit) * 0.6);
+        }
         .kpi-card {
-            background: linear-gradient(135deg, #f6fafc 0%, #eef4f8 100%);
-            border: 1px solid #dbe6ef;
-            border-radius: 12px;
-            padding: 0.85rem 1rem;
-            margin-bottom: 0.65rem;
+            padding: calc(var(--spacing-unit) * 0.8);
+            margin-bottom: calc(var(--spacing-unit) * 0.8);
+            background: linear-gradient(145deg, #14253a 0%, #111f33 100%);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            box-shadow: 0 8px 20px rgba(7, 14, 27, 0.35);
         }
         .kpi-label {
-            font-size: 0.82rem;
-            color: #4f6475;
-            letter-spacing: 0.01em;
-            margin-bottom: 0.2rem;
+            font-size: 0.78rem;
+            color: var(--muted);
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            margin-bottom: 0.3rem;
         }
         .kpi-value {
-            font-size: 1.2rem;
-            color: #15344a;
-            font-weight: 650;
+            font-size: 1.5rem;
+            color: var(--text);
+            font-weight: 600;
             margin: 0;
         }
         .section-note {
-            background: #f9fbfd;
-            border-left: 4px solid #4C78A8;
-            border-radius: 8px;
-            padding: 0.7rem 0.85rem;
-            margin-top: 0.4rem;
-            margin-bottom: 0.8rem;
-            color: #29455a;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-left: 4px solid var(--accent);
+            border-radius: 12px;
+            padding: 0.85rem 1rem;
+            margin-top: 0.6rem;
+            margin-bottom: 1rem;
+            color: var(--muted);
+        }
+        .stSidebar {
+            background: #0b1220;
+            border-right: 1px solid var(--border);
+            padding: var(--spacing-unit);
+        }
+        .stSidebar .sidebar-content {
+            margin-bottom: calc(var(--spacing-unit) * 1.2);
+        }
+        .stDataFrame, .stTable {
+            margin-top: var(--spacing-unit);
+        }
+        .chart-container {
+            margin-bottom: calc(var(--spacing-unit) * 1.5);
+        }
+        .chart-title {
+            margin-bottom: calc(var(--spacing-unit) * 0.8);
         }
         </style>
         """,
@@ -92,6 +159,71 @@ def render_kpi_card(label: str, value: str) -> None:
         """,
         unsafe_allow_html=True,
     )
+
+
+def style_axes(ax: plt.Axes) -> None:
+    ax.set_facecolor("#111f33")
+    ax.tick_params(colors="#c8d6e5")
+    ax.xaxis.label.set_color("#c8d6e5")
+    ax.yaxis.label.set_color("#c8d6e5")
+    ax.title.set_color("#e5edf5")
+    for spine in ax.spines.values():
+        spine.set_color("#1f334d")
+    ax.grid(color="#22344d", alpha=0.4)
+
+
+def format_percentile(value: float, series: pd.Series) -> float:
+    if series.empty or np.isnan(value):
+        return np.nan
+    return float((series <= value).mean() * 100.0)
+
+
+def describe_relative(value: float, median: float, label: str) -> str:
+    if np.isnan(value) or np.isnan(median):
+        return f"{label} is not available for comparison."
+    if value >= median * 1.15:
+        return f"{label} is well above the national median."
+    if value >= median * 1.03:
+        return f"{label} is slightly above the national median."
+    if value <= median * 0.85:
+        return f"{label} is well below the national median."
+    if value <= median * 0.97:
+        return f"{label} is slightly below the national median."
+    return f"{label} is around the national median."
+
+
+def describe_scenario_shift(delta: float) -> str:
+    if abs(delta) < 1e-6:
+        return "The scenario keeps predicted income close to the baseline."
+    if delta > 0:
+        return "The scenario suggests a higher predicted income than the baseline."
+    return "The scenario suggests a lower predicted income than the baseline."
+
+
+def build_indicator_insight(
+    feature: str,
+    baseline_value: float,
+    scenario_value: float,
+    median_value: float,
+    predicted_delta: float,
+) -> str:
+    label = FEATURE_LABELS.get(feature, feature.replace("_", " ").title())
+    base_text = describe_relative(baseline_value, median_value, label)
+    change = scenario_value - baseline_value
+    if abs(change) < 1e-6:
+        change_text = "The scenario keeps this indicator at baseline levels."
+    elif change > 0:
+        change_text = "The scenario increases this indicator relative to baseline."
+    else:
+        change_text = "The scenario reduces this indicator relative to baseline."
+
+    if "poverty" in feature or feature == "gini":
+        direction = "Higher values are generally linked to lower income outcomes."
+    else:
+        direction = "Higher values are generally linked to stronger income outcomes."
+
+    shift_text = describe_scenario_shift(predicted_delta)
+    return f"{base_text} {change_text} {direction} {shift_text}"
 
 
 @st.cache_data
@@ -186,8 +318,11 @@ def get_feature_bounds(df: pd.DataFrame, feature_cols: list[str]) -> dict[str, t
 def main() -> None:
     st.set_page_config(page_title="Financial Mobility Simulation Dashboard", layout="wide")
     apply_custom_style()
+    st.markdown("<span class='pill'>Civic-tech analytics</span>", unsafe_allow_html=True)
     st.title("Financial Mobility Simulation Dashboard")
-    st.caption("Interactive district-level dashboard for income mobility prediction and scenario simulation.")
+    st.caption(
+        "Explore district-level income outlooks with simple simulations and clear explanations."
+    )
 
     try:
         df = load_data()
@@ -205,8 +340,9 @@ def main() -> None:
     feature_bounds = get_feature_bounds(df, feature_cols)
     feature_medians = df[feature_cols].median(numeric_only=True)
 
-    st.sidebar.header("Controls")
-    selected_model_name = st.sidebar.selectbox("Model", list(models.keys()), index=2)
+    st.sidebar.header("Explore settings")
+    st.sidebar.caption("Choose a district and year baseline, then adjust local conditions.")
+    selected_model_name = st.sidebar.selectbox("Prediction model", list(models.keys()), index=2)
     selected_district = st.sidebar.selectbox("District", district_options)
     district_years = (
         df.loc[df["district"] == selected_district, "year"].dropna().astype(int).sort_values().unique().tolist()
@@ -214,18 +350,18 @@ def main() -> None:
         else []
     )
     selected_year = st.sidebar.selectbox(
-        "Year",
+        "Baseline year",
         district_years,
         index=len(district_years) - 1 if district_years else 0,
-        help="Select the district-year baseline used for actual values and default simulation inputs.",
+        help="This year provides the baseline values and observed income for the district.",
     ) if district_years else None
 
-    with st.sidebar.expander("How to use this dashboard", expanded=False):
+    with st.sidebar.expander("Quick guide", expanded=False):
         st.markdown(
             """
-            1. Select district, year, and model.
-            2. Adjust inputs to run a simulation scenario.
-            3. Use Reset to Baseline to restore official district values.
+            1. Pick a district and baseline year.
+            2. Adjust local conditions to explore scenarios.
+            3. Reset to Baseline to return to official values.
             """
         )
 
@@ -252,7 +388,8 @@ def main() -> None:
             st.session_state[f"input_{feature}"] = baseline_values[feature]
         st.rerun()
 
-    st.sidebar.subheader("Simulation Inputs")
+    st.sidebar.subheader("District conditions")
+    st.sidebar.caption("Adjust values to see how predicted income responds.")
     input_values: dict[str, float] = {}
     for group_name, group_features in FEATURE_GROUPS.items():
         st.sidebar.markdown(f"**{group_name}**")
@@ -263,7 +400,7 @@ def main() -> None:
             spread = max_v - min_v
             step = max(spread / 200.0, 0.01)
             input_values[feature] = st.sidebar.number_input(
-                label=feature,
+                label=FEATURE_LABELS.get(feature, feature.replace("_", " ").title()),
                 min_value=min_v,
                 max_value=max_v,
                 value=float(st.session_state[f"input_{feature}"]),
@@ -279,7 +416,7 @@ def main() -> None:
         spread = max_v - min_v
         step = max(spread / 200.0, 0.01)
         input_values[feature] = st.sidebar.number_input(
-            label=feature,
+            label=FEATURE_LABELS.get(feature, feature.replace("_", " ").title()),
             min_value=min_v,
             max_value=max_v,
             value=float(st.session_state[f"input_{feature}"]),
@@ -300,70 +437,78 @@ def main() -> None:
 
     with tabs[0]:
         st.markdown(
-            "<div class='section-note'><strong>FYP2 Implementation:</strong> "
-            "This screen documents system integration of data loading, model inference, user controls, and real-time simulation outputs.</div>",
+            "<div class='section-note'><strong>Purpose:</strong> "
+            "This dashboard explains how district conditions relate to income outcomes using simple, testable scenarios."
+            "</div>",
             unsafe_allow_html=True,
         )
-        st.markdown("### What This Model Predicts")
-        st.write(
-            "The selected model predicts district-level median household income (income_median) "
-            "from poverty, inequality, and infrastructure indicators."
+        st.markdown("<div class='section-title'>What this dashboard shows</div>", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='section-subtitle'>"
+            "We estimate district-level median household income based on poverty, inequality, and infrastructure indicators."
+            "</div>",
+            unsafe_allow_html=True,
         )
-        st.markdown("### What Simulation Means")
-        st.write(
-            "Simulation lets you adjust feature values to test how a district's predicted income "
-            "changes under hypothetical scenarios."
+        st.markdown("<div class='section-title'>How to read the simulations</div>", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='section-subtitle'>"
+            "Adjust the district conditions to explore possible outcomes. This is a scenario tool, not a causal claim."
+            "</div>",
+            unsafe_allow_html=True,
         )
-        st.markdown("### Data Limitations")
-        st.warning(
-            "This dataset is relatively small and aggregated at district-year level (not household level), "
-            "so predictions are useful for scenario exploration, not causal claims."
+        st.markdown("<div class='section-title'>Interpretation cues</div>", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='section-subtitle'>"
+            "Higher poverty is generally associated with lower predicted income, while stronger infrastructure access is often linked to higher outcomes."
+            "</div>",
+            unsafe_allow_html=True,
         )
 
         top_col1, top_col2, top_col3, top_col4 = st.columns(4)
         top_col1.metric("State", str(selected_row.get("state", "N/A")))
         top_col2.metric("District", str(selected_row.get("district", "N/A")))
-        top_col3.metric("Year", str(selected_row.get("year", "N/A")))
-        top_col4.metric("Model", selected_model_name)
+        top_col3.metric("Baseline year", str(selected_row.get("year", "N/A")))
+        top_col4.metric("Prediction model", selected_model_name)
 
         actual_text = format_currency(actual_income)
         summary_col1, summary_col2 = st.columns(2)
         with summary_col1:
-            render_kpi_card("Actual Income (Selected Baseline)", actual_text)
+            render_kpi_card("Observed income (baseline)", actual_text)
         with summary_col2:
-            render_kpi_card("Current Predicted Income", format_currency(predicted_income))
+            render_kpi_card("Predicted income (current scenario)", format_currency(predicted_income))
 
         district_feature_df = pd.DataFrame(
             {
-                "Feature": feature_cols,
-                "Baseline Value": [baseline_values[f] for f in feature_cols],
-                "Current Simulation Value": [input_values[f] for f in feature_cols],
+                "Indicator": [FEATURE_LABELS.get(f, f.replace("_", " ").title()) for f in feature_cols],
+                "Baseline value": [baseline_values[f] for f in feature_cols],
+                "Scenario value": [input_values[f] for f in feature_cols],
             }
         )
-        st.dataframe(district_feature_df, use_container_width=True)
+        st.dataframe(district_feature_df, use_container_width=True, hide_index=True)
 
     with tabs[1]:
         st.markdown(
-            "<div class='section-note'><strong>FYP2 Testing:</strong> "
-            "Use this tab to verify prediction responsiveness, baseline reset behavior, and scenario sensitivity to feature changes.</div>",
+            "<div class='section-note'><strong>Simulation:</strong> "
+            "Compare the baseline with your scenario and see how predicted income changes."
+            "</div>",
             unsafe_allow_html=True,
         )
-        st.subheader("Prediction Result")
+        st.subheader("Prediction result")
         pred_col1, pred_col2, pred_col3 = st.columns(3)
         pred_col1.metric(
-            "Predicted Income (income_median)",
+            "Predicted income",
             f"RM {predicted_income:,.2f}",
-            delta=f"{delta_from_baseline:+,.2f} vs baseline prediction",
+            delta=f"{delta_from_baseline:+,.2f} vs baseline",
         )
 
         if np.isnan(actual_income):
-            pred_col2.metric("Actual Income", "N/A")
-            pred_col3.metric("Difference from Actual", "N/A")
+            pred_col2.metric("Observed income", "N/A")
+            pred_col3.metric("Difference from observed", "N/A")
         else:
-            pred_col2.metric("Actual Income", format_currency(actual_income))
-            pred_col3.metric("Difference from Actual", f"RM {delta_from_actual:+,.2f}")
+            pred_col2.metric("Observed income", format_currency(actual_income))
+            pred_col3.metric("Difference from observed", f"RM {delta_from_actual:+,.2f}")
 
-        st.caption("Adjust sidebar inputs to run scenario simulation dynamically.")
+        st.caption("Adjust the sidebar values to explore a different scenario.")
 
         changes = []
         for feature in feature_cols:
@@ -373,105 +518,226 @@ def main() -> None:
             if abs(delta) > 1e-12:
                 changes.append(
                     {
-                        "Feature": feature,
+                        "Indicator": FEATURE_LABELS.get(feature, feature.replace("_", " ").title()),
                         "Baseline": baseline,
-                        "Current": current,
+                        "Scenario": current,
                         "Change": delta,
                     }
                 )
 
         if changes:
-            st.success(f"Simulation active: {len(changes)} feature(s) changed from baseline.")
-            st.dataframe(pd.DataFrame(changes), use_container_width=True)
+            st.success(f"Scenario active: {len(changes)} indicator(s) adjusted from baseline.")
+            st.dataframe(pd.DataFrame(changes), use_container_width=True, hide_index=True)
         else:
-            st.info("No simulation changes yet. Inputs match district baseline values.")
+            st.info("No scenario changes yet. Inputs match district baseline values.")
 
     with tabs[2]:
-        st.subheader("Official Model Comparison (Precomputed CV Metrics)")
-        st.caption("Metrics are loaded from models/metrics.csv using cross-validation results.")
+        st.subheader("Prediction accuracy comparison")
+        st.caption("Metrics are based on cross-validated performance from the training phase.")
 
         metrics_display = metrics_df.copy()
         metrics_display = metrics_display.rename(
             columns={
                 "model_key": "Model",
-                "rmse": "RMSE",
-                "mae": "MAE",
-                "r2": "R2",
+                "rmse": "Prediction error",
+                "mae": "Average absolute error",
+                "r2": "Explained variance (R2)",
             }
         )
-        metrics_display = metrics_display.sort_values("RMSE")
+        metrics_display = metrics_display.sort_values("Prediction error")
         best_model_name = str(metrics_display.iloc[0]["Model"])
-        st.success(f"Best performing model by RMSE: {best_model_name}")
+        st.success(f"Best performing model (lowest error): {best_model_name}")
         st.dataframe(
-            metrics_display[["Model", "RMSE", "MAE", "R2", *[c for c in ["cv_method", "n_splits", "random_state"] if c in metrics_display.columns]]],
+            metrics_display[
+                [
+                    "Model",
+                    "Prediction error",
+                    "Average absolute error",
+                    "Explained variance (R2)",
+                    *[c for c in ["cv_method", "n_splits", "random_state"] if c in metrics_display.columns],
+                ]
+            ],
             use_container_width=True,
+            hide_index=True,
         )
 
         rmse_fig, rmse_ax = plt.subplots(figsize=(8, 4))
-        rmse_ax.bar(metrics_display["Model"], metrics_display["RMSE"], color=["#4C78A8", "#72B7B2", "#F58518"])
-        rmse_ax.set_title("RMSE Comparison (Lower is Better)")
-        rmse_ax.set_ylabel("RMSE")
+        rmse_fig.patch.set_facecolor("#0f172a")
+        rmse_ax.bar(
+            metrics_display["Model"],
+            metrics_display["Prediction error"],
+            color=["#7fb7b1", "#6ea8fe", "#f6bd60"],
+        )
+        rmse_ax.set_title("Prediction error (lower is better)")
+        rmse_ax.set_ylabel("Prediction error")
         rmse_ax.set_xlabel("Model")
-        rmse_ax.grid(axis="y", alpha=0.2)
+        style_axes(rmse_ax)
         st.pyplot(rmse_fig)
         plt.close(rmse_fig)
 
     with tabs[3]:
-        st.subheader("Feature-Income Relationship")
-        viz_feature = st.selectbox("Feature for scatter plot", feature_cols, index=0)
-
-        scatter_df = df[[viz_feature, TARGET_COL]].dropna().copy()
-        scatter_fig, scatter_ax = plt.subplots(figsize=(9, 5))
-        scatter_ax.scatter(
-            scatter_df[viz_feature],
-            scatter_df[TARGET_COL],
-            alpha=0.45,
-            s=28,
-            color="#9AA0A6",
-            label="District observations",
-        )
-
-        baseline_feature_value = baseline_values[viz_feature]
-        if not np.isnan(actual_income):
-            scatter_ax.scatter(
-                [baseline_feature_value],
-                [actual_income],
-                color="#E45756",
-                s=180,
-                marker="*",
-                label="Selected district (actual)",
-            )
-
-        scatter_ax.scatter(
-            [input_values[viz_feature]],
-            [predicted_income],
-            color="#1F77B4",
-            s=120,
-            marker="X",
-            label="Simulated scenario",
-        )
-        scatter_ax.set_title(f"{viz_feature} vs {TARGET_COL}")
-        scatter_ax.set_xlabel(viz_feature)
-        scatter_ax.set_ylabel(TARGET_COL)
-        scatter_ax.legend(loc="best")
-        scatter_ax.grid(alpha=0.2)
-        st.pyplot(scatter_fig)
-        plt.close(scatter_fig)
-
-        st.subheader("Income Distribution")
+        st.subheader("District Insight Summary")
         income_series = pd.to_numeric(df[TARGET_COL], errors="coerce").dropna()
+        national_medians = df[feature_cols].median(numeric_only=True)
+
+        insight_items = [
+            describe_relative(
+                baseline_values.get("poverty_absolute", np.nan),
+                national_medians.get("poverty_absolute", np.nan),
+                "Absolute poverty",
+            ),
+            describe_relative(
+                baseline_values.get("poverty_relative", np.nan),
+                national_medians.get("poverty_relative", np.nan),
+                "Relative poverty",
+            ),
+            describe_relative(
+                baseline_values.get("gini", np.nan),
+                national_medians.get("gini", np.nan),
+                "Income inequality",
+            ),
+            describe_relative(
+                baseline_values.get("electricity", np.nan),
+                national_medians.get("electricity", np.nan),
+                "Electricity access",
+            ),
+            describe_relative(
+                baseline_values.get("piped_water", np.nan),
+                national_medians.get("piped_water", np.nan),
+                "Water access",
+            ),
+            describe_relative(
+                baseline_values.get("sanitation", np.nan),
+                national_medians.get("sanitation", np.nan),
+                "Sanitation access",
+            ),
+            describe_scenario_shift(delta_from_baseline),
+        ]
+        for item in insight_items:
+            st.markdown(f"- {item}", unsafe_allow_html=True)
+
+        st.markdown("<div class='section-title'>Indicator relationships</div>", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='section-subtitle'>Each chart highlights the selected district and your scenario so you can compare typical patterns.</div>",
+            unsafe_allow_html=True,
+        )
+
+        indicator_grid = [
+            "poverty_absolute",
+            "poverty_relative",
+            "gini",
+            "electricity",
+            "piped_water",
+            "sanitation",
+        ]
+
+        for left_feature, right_feature in zip(indicator_grid[::2], indicator_grid[1::2]):
+            col_left, col_right = st.columns(2)
+            for feature, col in [(left_feature, col_left), (right_feature, col_right)]:
+                with col:
+                    scatter_df = df[[feature, TARGET_COL]].dropna().copy()
+                    scatter_fig, scatter_ax = plt.subplots(figsize=(5, 3.4))
+                    scatter_fig.patch.set_facecolor("#0f172a")
+                    scatter_ax.scatter(
+                        scatter_df[feature],
+                        scatter_df[TARGET_COL],
+                        alpha=0.45,
+                        s=20,
+                        color="#8ca3b8",
+                        label="All districts",
+                    )
+
+                    baseline_feature_value = baseline_values[feature]
+                    if not np.isnan(actual_income):
+                        scatter_ax.scatter(
+                            [baseline_feature_value],
+                            [actual_income],
+                            color="#ef6f6c",
+                            s=120,
+                            marker="*",
+                            label="Selected district",
+                        )
+
+                    scatter_ax.scatter(
+                        [input_values[feature]],
+                        [predicted_income],
+                        color="#7fb7b1",
+                        s=80,
+                        marker="X",
+                        label="Scenario",
+                    )
+                    scatter_ax.set_title(
+                        f"{FEATURE_LABELS.get(feature, feature.replace('_', ' ').title())} vs {TARGET_LABEL}",
+                        fontsize=10,
+                    )
+                    scatter_ax.set_xlabel(FEATURE_LABELS.get(feature, feature.replace("_", " ").title()), fontsize=9)
+                    scatter_ax.set_ylabel(f"{TARGET_LABEL} (RM)", fontsize=9)
+                    scatter_ax.legend(
+                        loc="best",
+                        facecolor="#0f172a",
+                        edgecolor="#1f334d",
+                        labelcolor="#e5edf5",
+                        fontsize=8,
+                    )
+                    style_axes(scatter_ax)
+                    st.pyplot(scatter_fig)
+                    plt.close(scatter_fig)
+
+                    median_value = national_medians.get(feature, np.nan)
+                    insight_text = build_indicator_insight(
+                        feature,
+                        baseline_values[feature],
+                        input_values[feature],
+                        median_value,
+                        delta_from_baseline,
+                    )
+                    st.caption(insight_text)
+
+        st.subheader("Where this district stands")
+        st.caption("Compare observed income with the full district distribution and the simulated scenario.")
         dist_fig, dist_ax = plt.subplots(figsize=(9, 4.8))
-        dist_ax.hist(income_series, bins=24, color="#72B7B2", alpha=0.8, edgecolor="white")
+        dist_fig.patch.set_facecolor("#0f172a")
+        dist_ax.hist(income_series, bins=24, color="#6ea8fe", alpha=0.8, edgecolor="#0f172a")
         if not np.isnan(actual_income):
-            dist_ax.axvline(actual_income, color="#E45756", linestyle="--", linewidth=2, label="Selected district actual")
-        dist_ax.axvline(predicted_income, color="#1F77B4", linestyle="-", linewidth=2, label="Simulated prediction")
-        dist_ax.set_title("Distribution of District income_median")
-        dist_ax.set_xlabel("income_median")
+            dist_ax.axvline(
+                actual_income,
+                color="#ef6f6c",
+                linestyle="--",
+                linewidth=2,
+                label="Selected district (observed)",
+            )
+        dist_ax.axvline(
+            predicted_income,
+            color="#7fb7b1",
+            linestyle="-",
+            linewidth=2,
+            label="Scenario prediction",
+        )
+        dist_ax.set_title("District incomes across Malaysia")
+        dist_ax.set_xlabel(f"{TARGET_LABEL} (RM)")
         dist_ax.set_ylabel("Count")
-        dist_ax.legend(loc="best")
-        dist_ax.grid(alpha=0.2)
+        dist_ax.legend(loc="best", facecolor="#0f172a", edgecolor="#1f334d", labelcolor="#e5edf5")
+        style_axes(dist_ax)
         st.pyplot(dist_fig)
         plt.close(dist_fig)
+
+        actual_percentile = format_percentile(actual_income, income_series)
+        scenario_percentile = format_percentile(predicted_income, income_series)
+        if not np.isnan(actual_percentile):
+            st.markdown(
+                f"- Observed income is higher than {actual_percentile:.0f}% of districts."
+            )
+        if not np.isnan(scenario_percentile):
+            st.markdown(
+                f"- The scenario would place the district above {scenario_percentile:.0f}% of districts."
+            )
+        if not np.isnan(actual_percentile) and not np.isnan(scenario_percentile):
+            if scenario_percentile > actual_percentile + 5:
+                st.markdown("- The scenario moves the district into a higher income tier.")
+            elif scenario_percentile < actual_percentile - 5:
+                st.markdown("- The scenario moves the district into a lower income tier.")
+            else:
+                st.markdown("- The scenario keeps the district in a similar income tier.")
 
 
 if __name__ == "__main__":
