@@ -137,6 +137,236 @@ def apply_custom_style() -> None:
         .chart-title {
             margin-bottom: calc(var(--spacing-unit) * 0.8);
         }
+        .landing-shell {
+            padding-top: 0.25rem;
+        }
+        .hero-panel,
+        .preview-panel {
+            background: linear-gradient(145deg, rgba(20, 37, 58, 0.96) 0%, rgba(17, 31, 51, 0.98) 100%);
+            border: 1px solid var(--border);
+            border-radius: 22px;
+            box-shadow: 0 18px 45px rgba(7, 14, 27, 0.38);
+        }
+        .hero-panel {
+            padding: 1.55rem 1.5rem 1.4rem;
+            height: 100%;
+        }
+        .preview-panel {
+            padding: 1.1rem;
+            height: 100%;
+        }
+        .eyebrow {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
+            font-size: 0.75rem;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--accent-2);
+            margin-bottom: 0.9rem;
+        }
+        .hero-title {
+            font-size: 2.5rem;
+            line-height: 1.05;
+            font-weight: 700;
+            color: var(--text);
+            margin: 0 0 0.8rem;
+        }
+        .hero-subtitle {
+            color: var(--muted);
+            font-size: 1rem;
+            line-height: 1.55;
+            margin: 0 0 1rem;
+            max-width: 42rem;
+        }
+        .hero-copy {
+            color: #bfd0df;
+            font-size: 0.95rem;
+            line-height: 1.6;
+            margin: 0 0 1.1rem;
+        }
+        .feature-list {
+            display: grid;
+            gap: 0.6rem;
+            margin: 0 0 1.1rem;
+        }
+        .feature-item {
+            display: flex;
+            align-items: center;
+            gap: 0.7rem;
+            background: rgba(10, 19, 34, 0.62);
+            border: 1px solid rgba(31, 51, 77, 0.82);
+            border-radius: 14px;
+            padding: 0.7rem 0.8rem;
+            color: var(--text);
+            font-size: 0.92rem;
+        }
+        .feature-dot {
+            width: 0.6rem;
+            height: 0.6rem;
+            border-radius: 999px;
+            background: linear-gradient(180deg, var(--accent) 0%, #6ea8fe 100%);
+            box-shadow: 0 0 0 4px rgba(127, 183, 177, 0.12);
+            flex: 0 0 auto;
+        }
+        .cta-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.85rem;
+            margin-top: 1rem;
+        }
+        .cta-note {
+            color: var(--muted);
+            font-size: 0.88rem;
+        }
+        .cta-link {
+            color: var(--accent-2);
+            font-size: 0.88rem;
+        }
+        .preview-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            margin-bottom: 0.9rem;
+        }
+        .preview-kicker {
+            color: var(--muted);
+            font-size: 0.74rem;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            margin-bottom: 0.35rem;
+        }
+        .preview-title {
+            color: var(--text);
+            font-size: 1.05rem;
+            font-weight: 600;
+        }
+        .preview-badge {
+            background: rgba(127, 183, 177, 0.12);
+            color: #b8e5e0;
+            border: 1px solid rgba(127, 183, 177, 0.22);
+            border-radius: 999px;
+            font-size: 0.76rem;
+            padding: 0.42rem 0.7rem;
+            white-space: nowrap;
+        }
+        .preview-kpis {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 0.65rem;
+            margin-bottom: 0.75rem;
+        }
+        .preview-kpi,
+        .preview-insight,
+        .preview-chart,
+        .preview-grid-card {
+            background: rgba(10, 19, 34, 0.65);
+            border: 1px solid rgba(31, 51, 77, 0.84);
+            border-radius: 16px;
+        }
+        .preview-kpi {
+            padding: 0.75rem;
+            min-height: 5.1rem;
+        }
+        .preview-kpi-label,
+        .preview-grid-label {
+            color: var(--muted);
+            font-size: 0.72rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            margin-bottom: 0.35rem;
+        }
+        .preview-kpi-value {
+            color: var(--text);
+            font-size: 1.08rem;
+            font-weight: 600;
+            margin: 0;
+        }
+        .preview-main {
+            display: grid;
+            gap: 0.7rem;
+        }
+        .preview-chart {
+            padding: 0.9rem;
+        }
+        .preview-bars {
+            display: grid;
+            gap: 0.58rem;
+            margin-top: 0.65rem;
+        }
+        .preview-bar-row {
+            display: grid;
+            grid-template-columns: 92px 1fr 44px;
+            gap: 0.6rem;
+            align-items: center;
+        }
+        .preview-bar-track {
+            height: 0.55rem;
+            background: #0b1423;
+            border: 1px solid rgba(31, 51, 77, 0.9);
+            border-radius: 999px;
+            overflow: hidden;
+        }
+        .preview-bar-fill {
+            height: 100%;
+            border-radius: inherit;
+            background: linear-gradient(90deg, #7fb7b1 0%, #6ea8fe 100%);
+        }
+        .preview-bar-label,
+        .preview-bar-value {
+            color: var(--muted);
+            font-size: 0.8rem;
+        }
+        .preview-grid {
+            display: grid;
+            grid-template-columns: 1.05fr 0.95fr;
+            gap: 0.7rem;
+        }
+        .preview-grid-card {
+            padding: 0.85rem;
+        }
+        .preview-grid-lines {
+            display: grid;
+            gap: 0.42rem;
+            margin-top: 0.45rem;
+        }
+        .preview-grid-line {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 0.8rem;
+            align-items: center;
+            color: #d7e2ec;
+            font-size: 0.84rem;
+        }
+        .preview-grid-chip {
+            font-size: 0.74rem;
+            color: #b8c8d9;
+            background: rgba(148, 163, 184, 0.1);
+            border: 1px solid rgba(148, 163, 184, 0.16);
+            border-radius: 999px;
+            padding: 0.18rem 0.55rem;
+        }
+        .preview-insight {
+            padding: 0.85rem;
+            color: #d5e1eb;
+            font-size: 0.87rem;
+            line-height: 1.55;
+        }
+        .preview-note {
+            color: var(--muted);
+            font-size: 0.8rem;
+            margin-top: 0.5rem;
+        }
+        .launch-button button {
+            border-radius: 999px !important;
+            padding: 0.72rem 1.2rem !important;
+            font-weight: 600 !important;
+            background: linear-gradient(90deg, #7fb7b1 0%, #6ea8fe 100%) !important;
+            color: #07111f !important;
+            border: none !important;
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -259,6 +489,105 @@ def predict(model: object, feature_values: dict[str, float], feature_order: list
     return float(model.predict(feature_row)[0])
 
 
+def go_to_dashboard() -> None:
+    st.session_state["app_mode"] = "dashboard"
+
+
+def render_homepage() -> None:
+    st.markdown("<div class='landing-shell'>", unsafe_allow_html=True)
+    left_col, right_col = st.columns([1.05, 0.95], gap="large")
+
+    with left_col:
+        st.markdown(
+            "<div class='hero-panel'>"
+            "<div class='eyebrow'>Civic-tech analytics platform</div>"
+            "<div class='hero-title'>Financial Mobility Simulation Dashboard</div>"
+            "<div class='hero-subtitle'>"
+            "Interactive civic-tech platform for exploring district income conditions, poverty indicators, and infrastructure-related simulations across Malaysia."
+            "</div>"
+            "<div class='hero-copy'>"
+            "The dashboard helps users examine how socioeconomic conditions relate to income outcomes, test policy-style scenarios, and use machine learning outputs to support clearer predictive insight."
+            "</div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+
+        st.markdown(
+            "<div class='feature-list'>"
+            "<div class='feature-item'><span class='feature-dot'></span>Predictive Income Simulation</div>"
+            "<div class='feature-item'><span class='feature-dot'></span>District-Level Analytics</div>"
+            "<div class='feature-item'><span class='feature-dot'></span>Infrastructure &amp; Poverty Insights</div>"
+            "<div class='feature-item'><span class='feature-dot'></span>Interactive Visual Exploration</div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+
+        button_col, note_col = st.columns([0.62, 0.38], gap="small")
+        with button_col:
+            st.markdown("<div class='launch-button'>", unsafe_allow_html=True)
+            st.button(
+                "Launch Dashboard",
+                type="primary",
+                use_container_width=True,
+                on_click=go_to_dashboard,
+                key="launch_dashboard_home",
+            )
+            st.markdown("</div>", unsafe_allow_html=True)
+        with note_col:
+            st.markdown(
+                "<div class='cta-note'>View Project Overview</div>"
+                "<div class='cta-link'>A concise introduction before analytics.</div>",
+                unsafe_allow_html=True,
+            )
+
+    with right_col:
+        st.markdown(
+            "<div class='preview-panel'>"
+            "<div class='preview-header'>"
+            "<div>"
+            "<div class='preview-kicker'>Dashboard preview</div>"
+            "<div class='preview-title'>Civic analytics workspace</div>"
+            "</div>"
+            "<div class='preview-badge'>Interactive simulation ready</div>"
+            "</div>"
+            "<div class='preview-kpis'>"
+            "<div class='preview-kpi'><div class='preview-kpi-label'>Median income</div><p class='preview-kpi-value'>RM 5,420</p></div>"
+            "<div class='preview-kpi'><div class='preview-kpi-label'>District coverage</div><p class='preview-kpi-value'>137 districts</p></div>"
+            "<div class='preview-kpi'><div class='preview-kpi-label'>Best model</div><p class='preview-kpi-value'>Random Forest</p></div>"
+            "</div>"
+            "<div class='preview-main'>"
+            "<div class='preview-chart'>"
+            "<div class='preview-kicker'>Simulation snapshot</div>"
+            "<div class='preview-title' style='font-size:0.95rem;'>Income response by district condition</div>"
+            "<div class='preview-bars'>"
+            "<div class='preview-bar-row'><div class='preview-bar-label'>Poverty</div><div class='preview-bar-track'><div class='preview-bar-fill' style='width: 62%;'></div></div><div class='preview-bar-value'>62%</div></div>"
+            "<div class='preview-bar-row'><div class='preview-bar-label'>Gini</div><div class='preview-bar-track'><div class='preview-bar-fill' style='width: 48%;'></div></div><div class='preview-bar-value'>48%</div></div>"
+            "<div class='preview-bar-row'><div class='preview-bar-label'>Sanitation</div><div class='preview-bar-track'><div class='preview-bar-fill' style='width: 84%;'></div></div><div class='preview-bar-value'>84%</div></div>"
+            "<div class='preview-bar-row'><div class='preview-bar-label'>Water access</div><div class='preview-bar-track'><div class='preview-bar-fill' style='width: 91%;'></div></div><div class='preview-bar-value'>91%</div></div>"
+            "</div>"
+            "</div>"
+            "<div class='preview-grid'>"
+            "<div class='preview-grid-card'>"
+            "<div class='preview-grid-label'>Insight summary</div>"
+            "<div class='preview-insight'>District conditions can be compared against national patterns to estimate possible income trajectories under different scenarios.</div>"
+            "</div>"
+            "<div class='preview-grid-card'>"
+            "<div class='preview-grid-label'>Visualization grid</div>"
+            "<div class='preview-grid-lines'>"
+            "<div class='preview-grid-line'><span>Income vs poverty</span><span class='preview-grid-chip'>Scatter</span></div>"
+            "<div class='preview-grid-line'><span>District ranking</span><span class='preview-grid-chip'>Distribution</span></div>"
+            "<div class='preview-grid-line'><span>Model comparison</span><span class='preview-grid-chip'>Metrics</span></div>"
+            "</div>"
+            "</div>"
+            "</div>"
+            "<div class='preview-note'>Designed to feel like the actual dashboard while keeping the opening screen compact and presentation-ready.</div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
 @st.cache_data
 def load_metrics(metrics_path: Path = METRICS_PATH) -> pd.DataFrame:
     if not metrics_path.exists():
@@ -318,6 +647,14 @@ def get_feature_bounds(df: pd.DataFrame, feature_cols: list[str]) -> dict[str, t
 def main() -> None:
     st.set_page_config(page_title="Financial Mobility Simulation Dashboard", layout="wide")
     apply_custom_style()
+
+    if "app_mode" not in st.session_state:
+        st.session_state["app_mode"] = "home"
+
+    if st.session_state["app_mode"] == "home":
+        render_homepage()
+        return
+
     st.markdown("<span class='pill'>Civic-tech analytics</span>", unsafe_allow_html=True)
     st.title("Financial Mobility Simulation Dashboard")
     st.caption(
