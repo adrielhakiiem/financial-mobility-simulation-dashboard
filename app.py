@@ -43,7 +43,7 @@ FEATURE_HELP = {
     "electricity": "Share of households with electricity access.",
 }
 
-
+_DEPRIVATION_FEATURES = frozenset({"poverty_absolute", "poverty_relative", "gini"})
 def apply_custom_style() -> None:
     st.markdown(
         """
@@ -64,6 +64,11 @@ def apply_custom_style() -> None:
             --sidebar-caption: #aabecf;
             --sidebar-group-surface: rgba(17, 31, 51, 0.72);
             --sidebar-input-bg: rgba(10, 19, 34, 0.75);
+            --body-support: #aabdd2;
+            --body-dim: #9eb6cc;
+            --insight-pos: #8ec9a8;
+            --insight-neg: #e8a87c;
+            --insight-neutral: #b4c4d4;
         }
         .stApp {
             background: radial-gradient(circle at top left, #14253b 0%, #0f172a 55%, #0d1323 100%);
@@ -86,13 +91,150 @@ def apply_custom_style() -> None:
             font-size: 1.5rem;
             margin-bottom: var(--spacing-unit);
         }
+        /* Main column: page and section hierarchy (excludes sidebar) */
+        [data-testid="stMain"] h1 {
+            font-size: 2.05rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            color: #f1f7fc;
+            margin-bottom: 0.35rem;
+            line-height: 1.15;
+        }
+        [data-testid="stMain"] h2 {
+            font-size: 1.28rem;
+            font-weight: 600;
+            color: #e8f0f8;
+            margin-top: 1.25rem;
+            margin-bottom: 0.5rem;
+            letter-spacing: -0.01em;
+        }
+        [data-testid="stMain"] h3 {
+            font-size: 1.12rem;
+            font-weight: 600;
+            color: #e2ebf5;
+            margin-top: 1.05rem;
+            margin-bottom: 0.45rem;
+        }
+        [data-testid="stMain"] .stCaption {
+            color: var(--body-support) !important;
+            font-size: 0.92rem;
+            line-height: 1.45;
+        }
+        [data-testid="stMain"] .stCaption p {
+            color: inherit !important;
+        }
+        .page-tagline {
+            font-size: 0.95rem;
+            color: var(--body-support);
+            line-height: 1.5;
+            margin: 0 0 1.15rem;
+            max-width: 48rem;
+        }
+        .pill {
+            display: inline-block;
+            font-size: 0.72rem;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            font-weight: 600;
+            color: #b8e5e0;
+            background: rgba(127, 183, 177, 0.14);
+            border: 1px solid rgba(127, 183, 177, 0.28);
+            border-radius: 999px;
+            padding: 0.35rem 0.75rem;
+            margin-bottom: 0.65rem;
+        }
         .section-title {
-            font-size: 1.25rem;
-            margin-bottom: calc(var(--spacing-unit) * 0.8);
+            font-size: 1.18rem;
+            font-weight: 700;
+            color: #eef4fb;
+            margin-top: 1.15rem;
+            margin-bottom: 0.45rem;
+            letter-spacing: -0.015em;
+        }
+        .section-title:first-child {
+            margin-top: 0.25rem;
         }
         .section-subtitle {
-            font-size: 1rem;
-            margin-bottom: calc(var(--spacing-unit) * 0.6);
+            font-size: 0.96rem;
+            font-weight: 400;
+            color: var(--body-dim);
+            line-height: 1.62;
+            margin-bottom: 1rem;
+            max-width: 46rem;
+        }
+        .section-subtitle--tight {
+            margin-bottom: 0.55rem;
+        }
+        .viz-live-note {
+            font-size: 0.9rem;
+            color: var(--body-support);
+            background: rgba(17, 31, 51, 0.55);
+            border: 1px solid rgba(31, 51, 77, 0.85);
+            border-radius: 12px;
+            padding: 0.65rem 0.85rem;
+            margin: 0.35rem 0 1rem;
+            line-height: 1.5;
+            max-width: 48rem;
+        }
+        .interpretation-list {
+            margin: 0.35rem 0 1.1rem;
+            padding-left: 1.15rem;
+            color: var(--body-dim);
+            line-height: 1.55;
+            font-size: 0.95rem;
+        }
+        .interpretation-list li {
+            margin-bottom: 0.45rem;
+        }
+        .insight-label {
+            color: #dcecf7;
+            font-weight: 600;
+        }
+        .model-compare-lede {
+            font-size: 0.94rem;
+            color: var(--body-dim);
+            line-height: 1.58;
+            margin: 0.25rem 0 1rem;
+            max-width: 48rem;
+        }
+        .model-compare-divider-label {
+            font-size: 0.72rem;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            font-weight: 600;
+            color: var(--accent-2);
+            margin: 1.25rem 0 0.5rem;
+        }
+        .insight-pos {
+            color: var(--insight-pos);
+            font-weight: 600;
+        }
+        .insight-neg {
+            color: var(--insight-neg);
+            font-weight: 600;
+        }
+        .insight-neutral {
+            color: var(--insight-neutral);
+            font-weight: 500;
+        }
+        .insight-context {
+            color: var(--body-dim);
+            font-weight: 400;
+        }
+        .insight-direction {
+            color: #8a9dad;
+            font-size: 0.94em;
+            font-weight: 400;
+        }
+        .chart-insight-caption {
+            font-size: 0.88rem;
+            line-height: 1.55;
+            margin: 0.4rem 0 0.85rem;
+            color: var(--body-dim);
+        }
+        .block-gap-chart {
+            display: block;
+            height: 0.35rem;
         }
         .kpi-card {
             padding: calc(var(--spacing-unit) * 0.8);
@@ -122,8 +264,14 @@ def apply_custom_style() -> None:
             border-radius: 12px;
             padding: 0.85rem 1rem;
             margin-top: 0.6rem;
-            margin-bottom: 1rem;
-            color: var(--muted);
+            margin-bottom: 1.1rem;
+            color: var(--body-dim);
+            font-size: 0.93rem;
+            line-height: 1.55;
+        }
+        .section-note strong {
+            color: #dcecf4;
+            font-weight: 600;
         }
         .stSidebar {
             background: #0b1220;
@@ -554,6 +702,26 @@ def describe_scenario_shift(delta: float) -> str:
     return "The scenario suggests a lower predicted income than the baseline."
 
 
+def _scenario_indicator_change_html(feature: str, change: float) -> str:
+    if abs(change) < 1e-6:
+        return '<span class="insight-neutral">The scenario keeps this indicator at baseline levels.</span>'
+    if change > 0:
+        cls = "insight-neg" if feature in _DEPRIVATION_FEATURES else "insight-pos"
+        verb = "increases"
+    else:
+        cls = "insight-pos" if feature in _DEPRIVATION_FEATURES else "insight-neg"
+        verb = "reduces"
+    return f'<span class="{cls}">The scenario {verb} this indicator relative to baseline.</span>'
+
+
+def _predicted_income_shift_html(predicted_delta: float) -> str:
+    if abs(predicted_delta) < 1e-6:
+        return '<span class="insight-neutral">The scenario keeps predicted income close to the baseline.</span>'
+    if predicted_delta > 0:
+        return '<span class="insight-pos">The scenario suggests a higher predicted income than the baseline.</span>'
+    return '<span class="insight-neg">The scenario suggests a lower predicted income than the baseline.</span>'
+
+
 def build_indicator_insight(
     feature: str,
     baseline_value: float,
@@ -564,20 +732,72 @@ def build_indicator_insight(
     label = FEATURE_LABELS.get(feature, feature.replace("_", " ").title())
     base_text = describe_relative(baseline_value, median_value, label)
     change = scenario_value - baseline_value
-    if abs(change) < 1e-6:
-        change_text = "The scenario keeps this indicator at baseline levels."
-    elif change > 0:
-        change_text = "The scenario increases this indicator relative to baseline."
-    else:
-        change_text = "The scenario reduces this indicator relative to baseline."
+    change_html = _scenario_indicator_change_html(feature, change)
 
     if "poverty" in feature or feature == "gini":
         direction = "Higher values are generally linked to lower income outcomes."
     else:
         direction = "Higher values are generally linked to stronger income outcomes."
+    direction_html = f'<span class="insight-direction">{html.escape(direction)}</span>'
+    shift_html = _predicted_income_shift_html(predicted_delta)
+    base_html = f'<span class="insight-context">{html.escape(base_text)}</span>'
+    return (
+        f'<p class="chart-insight-caption">{base_html} {change_html} {direction_html} '
+        f"{shift_html}</p>"
+    )
 
-    shift_text = describe_scenario_shift(predicted_delta)
-    return f"{base_text} {change_text} {direction} {shift_text}"
+
+def format_baseline_insight_list_item(feature_key: str, value: float, median: float) -> str:
+    label = FEATURE_LABELS.get(feature_key, feature_key.replace("_", " ").title())
+    text = describe_relative(value, median, label)
+    escaped = html.escape(text)
+    escaped_label = html.escape(label)
+    if escaped_label in escaped:
+        escaped = escaped.replace(
+            escaped_label,
+            f'<strong class="insight-label">{escaped_label}</strong>',
+            1,
+        )
+    return f'<li><span class="insight-context">{escaped}</span></li>'
+
+
+def format_scenario_shift_list_item(delta: float) -> str:
+    text = describe_scenario_shift(delta)
+    if abs(delta) < 1e-6:
+        inner = f'<span class="insight-neutral">{html.escape(text)}</span>'
+    elif delta > 0:
+        inner = f'<span class="insight-pos">{html.escape(text)}</span>'
+    else:
+        inner = f'<span class="insight-neg">{html.escape(text)}</span>'
+    return f"<li>{inner}</li>"
+
+
+def format_distribution_insights_html(
+    actual_percentile: float,
+    scenario_percentile: float,
+) -> str:
+    parts: list[str] = []
+    if not np.isnan(actual_percentile):
+        parts.append(
+            "<li><span class=\"insight-context\">Observed income is higher than "
+            f'<span class="insight-label">{actual_percentile:.0f}%</span> of districts.</span></li>'
+        )
+    if not np.isnan(scenario_percentile):
+        parts.append(
+            "<li><span class=\"insight-context\">The scenario would place the district above "
+            f'<span class="insight-label">{scenario_percentile:.0f}%</span> of districts.</span></li>'
+        )
+    if not np.isnan(actual_percentile) and not np.isnan(scenario_percentile):
+        if scenario_percentile > actual_percentile + 5:
+            tier = '<span class="insight-pos">The scenario moves the district into a higher income tier.</span>'
+        elif scenario_percentile < actual_percentile - 5:
+            tier = '<span class="insight-neg">The scenario moves the district into a lower income tier.</span>'
+        else:
+            tier = '<span class="insight-neutral">The scenario keeps the district in a similar income tier.</span>'
+        parts.append(f"<li>{tier}</li>")
+    if not parts:
+        return ""
+    return '<ul class="interpretation-list">' + "".join(parts) + "</ul>"
 
 
 @st.cache_data
@@ -781,8 +1001,10 @@ def main() -> None:
 
     st.markdown("<span class='pill'>Civic-tech analytics</span>", unsafe_allow_html=True)
     st.title("Financial Mobility Simulation Dashboard")
-    st.caption(
-        "Explore district-level income outlooks with simple simulations and clear explanations."
+    st.markdown(
+        "<p class='page-tagline'>Explore district-level income outlooks with simple simulations "
+        "and clear explanations.</p>",
+        unsafe_allow_html=True,
     )
 
     try:
@@ -912,14 +1134,14 @@ def main() -> None:
         )
         st.markdown("<div class='section-title'>What this dashboard shows</div>", unsafe_allow_html=True)
         st.markdown(
-            "<div class='section-subtitle'>"
+            "<div class='section-subtitle section-subtitle--tight'>"
             "We estimate district-level median household income based on poverty, inequality, and infrastructure indicators."
             "</div>",
             unsafe_allow_html=True,
         )
         st.markdown("<div class='section-title'>How to read the simulations</div>", unsafe_allow_html=True)
         st.markdown(
-            "<div class='section-subtitle'>"
+            "<div class='section-subtitle section-subtitle--tight'>"
             "Adjust the district conditions to explore possible outcomes. This is a scenario tool, not a causal claim."
             "</div>",
             unsafe_allow_html=True,
@@ -932,6 +1154,7 @@ def main() -> None:
             unsafe_allow_html=True,
         )
 
+        st.markdown("<div class='block-gap-chart'></div>", unsafe_allow_html=True)
         top_col1, top_col2, top_col3, top_col4 = st.columns(4)
         top_col1.metric("State", str(selected_row.get("state", "N/A")))
         top_col2.metric("District", str(selected_row.get("district", "N/A")))
@@ -1000,7 +1223,59 @@ def main() -> None:
             st.info("No scenario changes yet. Inputs match district baseline values.")
 
     with tabs[2]:
-        st.subheader("Prediction accuracy comparison")
+        st.subheader("Model comparison")
+        st.markdown(
+            "<p class='model-compare-lede'><strong>Evaluation metrics</strong> are fixed training-phase measurements "
+            "(cross-validation on historical data). <strong>Scenario predictions</strong> update when you change "
+            "district conditions in the sidebar—they show each model&rsquo;s estimate for your current inputs, "
+            "not a new accuracy score.</p>",
+            unsafe_allow_html=True,
+        )
+
+        st.markdown(
+            "<div class='section-title'>Scenario output across models</div>",
+            unsafe_allow_html=True,
+        )
+        st.caption("Predictions refresh when you adjust sidebar values. Each row uses the same scenario inputs.")
+
+        scenario_rows: list[dict[str, object]] = []
+        for model_name, model_obj in models.items():
+            pred_scenario = predict(model_obj, input_values, feature_cols)
+            pred_district_baseline = predict(model_obj, baseline_values, feature_cols)
+            scenario_rows.append(
+                {
+                    "Model": model_name,
+                    "Sidebar selection": "Selected" if model_name == selected_model_name else "",
+                    "Scenario (RM)": round(pred_scenario, 2),
+                    "District baseline (RM)": round(pred_district_baseline, 2),
+                    "Δ vs district baseline (RM)": round(pred_scenario - pred_district_baseline, 2),
+                }
+            )
+        scenario_pred_df = pd.DataFrame(scenario_rows)
+        st.dataframe(
+            scenario_pred_df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Model": st.column_config.TextColumn("Model", width="medium"),
+                "Sidebar selection": st.column_config.TextColumn("Your model", width="small"),
+                "Scenario (RM)": st.column_config.NumberColumn("Scenario (RM)", format="%.2f"),
+                "District baseline (RM)": st.column_config.NumberColumn("District baseline (RM)", format="%.2f"),
+                "Δ vs district baseline (RM)": st.column_config.NumberColumn(
+                    "Δ vs district baseline (RM)", format="%.2f", help="Change from official district values to your scenario."
+                ),
+            },
+        )
+
+        st.divider()
+        st.markdown(
+            "<p class='model-compare-divider-label'>Fixed training metrics (do not change with sliders)</p>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            "<div class='section-title'>Prediction accuracy on historical data</div>",
+            unsafe_allow_html=True,
+        )
         st.caption("Metrics are based on cross-validated performance from the training phase.")
 
         metrics_display = metrics_df.copy()
@@ -1031,10 +1306,18 @@ def main() -> None:
 
         rmse_fig, rmse_ax = plt.subplots(figsize=(8, 4))
         rmse_fig.patch.set_facecolor("#0f172a")
+        bar_colors: list[str] = []
+        for m in metrics_display["Model"]:
+            if m == selected_model_name:
+                bar_colors.append("#7fb7b1")
+            elif m == best_model_name:
+                bar_colors.append("#6ea8fe")
+            else:
+                bar_colors.append("#5a6d82")
         rmse_ax.bar(
             metrics_display["Model"],
             metrics_display["Prediction error"],
-            color=["#7fb7b1", "#6ea8fe", "#f6bd60"],
+            color=bar_colors,
         )
         rmse_ax.set_title("Prediction error (lower is better)")
         rmse_ax.set_ylabel("Prediction error")
@@ -1045,50 +1328,46 @@ def main() -> None:
 
     with tabs[3]:
         st.subheader("District Insight Summary")
+        st.markdown(
+            "<div class='viz-live-note'>"
+            "Charts and insights update automatically as district conditions change in the sidebar."
+            "</div>",
+            unsafe_allow_html=True,
+        )
         income_series = pd.to_numeric(df[TARGET_COL], errors="coerce").dropna()
         national_medians = df[feature_cols].median(numeric_only=True)
 
-        insight_items = [
-            describe_relative(
-                baseline_values.get("poverty_absolute", np.nan),
-                national_medians.get("poverty_absolute", np.nan),
-                "Absolute poverty",
-            ),
-            describe_relative(
-                baseline_values.get("poverty_relative", np.nan),
-                national_medians.get("poverty_relative", np.nan),
-                "Relative poverty",
-            ),
-            describe_relative(
-                baseline_values.get("gini", np.nan),
-                national_medians.get("gini", np.nan),
-                "Income inequality",
-            ),
-            describe_relative(
-                baseline_values.get("electricity", np.nan),
-                national_medians.get("electricity", np.nan),
-                "Electricity access",
-            ),
-            describe_relative(
-                baseline_values.get("piped_water", np.nan),
-                national_medians.get("piped_water", np.nan),
-                "Water access",
-            ),
-            describe_relative(
-                baseline_values.get("sanitation", np.nan),
-                national_medians.get("sanitation", np.nan),
-                "Sanitation access",
-            ),
-            describe_scenario_shift(delta_from_baseline),
+        insight_feature_order = [
+            "poverty_absolute",
+            "poverty_relative",
+            "gini",
+            "electricity",
+            "piped_water",
+            "sanitation",
         ]
-        for item in insight_items:
-            st.markdown(f"- {item}", unsafe_allow_html=True)
+        insight_li_html: list[str] = []
+        for fk in insight_feature_order:
+            insight_li_html.append(
+                format_baseline_insight_list_item(
+                    fk,
+                    float(baseline_values.get(fk, np.nan)),
+                    float(national_medians.get(fk, np.nan)),
+                )
+            )
+        insight_li_html.append(format_scenario_shift_list_item(delta_from_baseline))
+        st.markdown(
+            '<ul class="interpretation-list">' + "".join(insight_li_html) + "</ul>",
+            unsafe_allow_html=True,
+        )
 
         st.markdown("<div class='section-title'>Indicator relationships</div>", unsafe_allow_html=True)
         st.markdown(
-            "<div class='section-subtitle'>Each chart highlights the selected district and your scenario so you can compare typical patterns.</div>",
+            "<div class='section-subtitle section-subtitle--tight'>"
+            "Each chart highlights the selected district and your scenario so you can compare typical patterns."
+            "</div>",
             unsafe_allow_html=True,
         )
+        st.markdown("<div class='block-gap-chart'></div>", unsafe_allow_html=True)
 
         indicator_grid = [
             "poverty_absolute",
@@ -1152,15 +1431,16 @@ def main() -> None:
                     plt.close(scatter_fig)
 
                     median_value = national_medians.get(feature, np.nan)
-                    insight_text = build_indicator_insight(
+                    insight_html = build_indicator_insight(
                         feature,
                         baseline_values[feature],
                         input_values[feature],
                         median_value,
                         delta_from_baseline,
                     )
-                    st.caption(insight_text)
+                    st.markdown(insight_html, unsafe_allow_html=True)
 
+        st.markdown("<div class='block-gap-chart'></div>", unsafe_allow_html=True)
         st.subheader("Where this district stands")
         st.caption("Compare observed income with the full district distribution and the simulated scenario.")
         dist_fig, dist_ax = plt.subplots(figsize=(9, 4.8))
@@ -1191,21 +1471,9 @@ def main() -> None:
 
         actual_percentile = format_percentile(actual_income, income_series)
         scenario_percentile = format_percentile(predicted_income, income_series)
-        if not np.isnan(actual_percentile):
-            st.markdown(
-                f"- Observed income is higher than {actual_percentile:.0f}% of districts."
-            )
-        if not np.isnan(scenario_percentile):
-            st.markdown(
-                f"- The scenario would place the district above {scenario_percentile:.0f}% of districts."
-            )
-        if not np.isnan(actual_percentile) and not np.isnan(scenario_percentile):
-            if scenario_percentile > actual_percentile + 5:
-                st.markdown("- The scenario moves the district into a higher income tier.")
-            elif scenario_percentile < actual_percentile - 5:
-                st.markdown("- The scenario moves the district into a lower income tier.")
-            else:
-                st.markdown("- The scenario keeps the district in a similar income tier.")
+        dist_insights_html = format_distribution_insights_html(actual_percentile, scenario_percentile)
+        if dist_insights_html:
+            st.markdown(dist_insights_html, unsafe_allow_html=True)
 
 
 if __name__ == "__main__":
