@@ -1,3 +1,4 @@
+import html
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -59,6 +60,10 @@ def apply_custom_style() -> None:
             --highlight: #f6bd60;
             --danger: #ef6f6c;
             --spacing-unit: 1rem;
+            --sidebar-label: #c9d9e8;
+            --sidebar-caption: #aabecf;
+            --sidebar-group-surface: rgba(17, 31, 51, 0.72);
+            --sidebar-input-bg: rgba(10, 19, 34, 0.75);
         }
         .stApp {
             background: radial-gradient(circle at top left, #14253b 0%, #0f172a 55%, #0d1323 100%);
@@ -127,6 +132,111 @@ def apply_custom_style() -> None:
         }
         .stSidebar .sidebar-content {
             margin-bottom: calc(var(--spacing-unit) * 1.2);
+        }
+        /* Sidebar: scoped layout, contrast, and hierarchy (dashboard mode only) */
+        [data-testid="stSidebar"] {
+            color: var(--text);
+        }
+        [data-testid="stSidebar"] [data-testid="stSidebarContent"] > div > [data-testid="stVerticalBlock"] {
+            gap: 0.62rem;
+        }
+        [data-testid="stSidebar"] [data-testid="stCaptionContainer"] p,
+        [data-testid="stSidebar"] .stCaption {
+            color: var(--sidebar-caption) !important;
+            line-height: 1.45;
+        }
+        [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p,
+        [data-testid="stSidebar"] label span,
+        [data-testid="stSidebar"] .stWidgetLabel p {
+            color: var(--sidebar-label) !important;
+            font-weight: 500;
+            font-size: 0.9rem;
+            letter-spacing: 0.01em;
+        }
+        [data-testid="stSidebar"] h1,
+        [data-testid="stSidebar"] h2,
+        [data-testid="stSidebar"] h3 {
+            color: var(--text) !important;
+            letter-spacing: -0.01em;
+            margin-top: 0.15rem;
+            margin-bottom: 0.35rem;
+        }
+        [data-testid="stSidebar"] h1 {
+            font-size: 1.15rem;
+            font-weight: 700;
+        }
+        [data-testid="stSidebar"] h2 {
+            font-size: 1.05rem;
+            font-weight: 600;
+        }
+        [data-testid="stSidebar"] h3 {
+            font-size: 1rem;
+            font-weight: 600;
+        }
+        [data-testid="stSidebar"] hr {
+            margin: 1rem 0;
+            border: none;
+            border-top: 1px solid rgba(31, 51, 77, 0.95);
+        }
+        [data-testid="stSidebar"] [data-baseweb="select"] > div,
+        [data-testid="stSidebar"] [data-baseweb="input"] {
+            background-color: var(--sidebar-input-bg) !important;
+            border-color: rgba(31, 51, 77, 0.95) !important;
+            color: var(--text) !important;
+        }
+        [data-testid="stSidebar"] [data-baseweb="select"] svg,
+        [data-testid="stSidebar"] [data-baseweb="input"] svg {
+            fill: var(--sidebar-label);
+        }
+        [data-testid="stSidebar"] .stNumberInput input {
+            color: var(--text) !important;
+            background-color: var(--sidebar-input-bg) !important;
+            border: 1px solid rgba(31, 51, 77, 0.95) !important;
+            border-radius: 8px !important;
+        }
+        [data-testid="stSidebar"] .stNumberInput button {
+            background-color: rgba(17, 31, 51, 0.9) !important;
+            border-color: rgba(31, 51, 77, 0.95) !important;
+            color: var(--sidebar-label) !important;
+        }
+        [data-testid="stSidebar"] details {
+            background: var(--sidebar-group-surface);
+            border: 1px solid rgba(31, 51, 77, 0.85);
+            border-radius: 12px;
+            padding: 0.15rem 0.5rem 0.45rem;
+        }
+        [data-testid="stSidebar"] summary {
+            color: var(--text);
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+        [data-testid="stSidebar"] details .stMarkdown p,
+        [data-testid="stSidebar"] details .stMarkdown li {
+            color: var(--sidebar-caption);
+            font-size: 0.88rem;
+        }
+        .sidebar-section-kicker {
+            font-size: 0.68rem;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            color: var(--accent-2);
+            margin: 0 0 0.2rem;
+            font-weight: 600;
+        }
+        .sidebar-section-kicker--spaced {
+            margin-top: 0.15rem;
+        }
+        .sidebar-group-labelbar {
+            margin: 0.65rem 0 0.45rem;
+            padding: 0.48rem 0.72rem;
+            background: var(--sidebar-group-surface);
+            border: 1px solid rgba(31, 51, 77, 0.88);
+            border-radius: 10px;
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: #d8e8f2;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
         }
         .stDataFrame, .stTable {
             margin-top: var(--spacing-unit);
@@ -369,6 +479,20 @@ def apply_custom_style() -> None:
         }
         </style>
         """,
+        unsafe_allow_html=True,
+    )
+
+
+def _sidebar_section_kicker(text: str, *, spaced: bool = False) -> None:
+    classes = "sidebar-section-kicker"
+    if spaced:
+        classes += " sidebar-section-kicker--spaced"
+    st.sidebar.markdown(f"<p class='{classes}'>{html.escape(text)}</p>", unsafe_allow_html=True)
+
+
+def _sidebar_group_labelbar(title: str) -> None:
+    st.sidebar.markdown(
+        f"<div class='sidebar-group-labelbar'>{html.escape(title)}</div>",
         unsafe_allow_html=True,
     )
 
@@ -677,6 +801,7 @@ def main() -> None:
     feature_bounds = get_feature_bounds(df, feature_cols)
     feature_medians = df[feature_cols].median(numeric_only=True)
 
+    _sidebar_section_kicker("Setup")
     st.sidebar.header("Explore settings")
     st.sidebar.caption("Choose a district and year baseline, then adjust local conditions.")
     selected_model_name = st.sidebar.selectbox("Prediction model", list(models.keys()), index=2)
@@ -702,6 +827,8 @@ def main() -> None:
             """
         )
 
+    st.sidebar.divider()
+
     selected_row = get_district_row(df, selected_district, selected_year)
 
     baseline_values: dict[str, float] = {}
@@ -720,16 +847,20 @@ def main() -> None:
         st.session_state["active_district"] = selected_district
         st.session_state["active_year"] = selected_year
 
+    _sidebar_section_kicker("Scenario actions", spaced=True)
     if st.sidebar.button("Reset to Baseline", use_container_width=True):
         for feature in feature_cols:
             st.session_state[f"input_{feature}"] = baseline_values[feature]
         st.rerun()
 
+    st.sidebar.divider()
+
+    _sidebar_section_kicker("Local indicators")
     st.sidebar.subheader("District conditions")
     st.sidebar.caption("Adjust values to see how predicted income responds.")
     input_values: dict[str, float] = {}
     for group_name, group_features in FEATURE_GROUPS.items():
-        st.sidebar.markdown(f"**{group_name}**")
+        _sidebar_group_labelbar(group_name)
         for feature in group_features:
             if feature not in feature_cols:
                 continue
