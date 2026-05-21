@@ -3,24 +3,18 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.linear_model import LinearRegression, Ridge
+from model_config import (
+    DATA_PATH,
+    FEATURE_COLS,
+    MODELS_DIR,
+    MODEL_SPECS,
+    TARGET_COL,
+    build_models,
+    model_labels_by_key,
+)
+from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import KFold, cross_val_predict, train_test_split
-
-
-DATA_PATH = Path("data/processed/final_dataset.csv")
-MODELS_DIR = Path("models")
-
-FEATURE_COLS = [
-    "poverty_absolute",
-    "poverty_relative",
-    "gini",
-    "piped_water",
-    "sanitation",
-    "electricity",
-]
-TARGET_COL = "income_median"
 
 
 def load_data(data_path: Path = DATA_PATH) -> pd.DataFrame:
@@ -53,15 +47,6 @@ def preprocess_data(
     return X_clean, y_clean, feature_cols
 
 
-def get_models() -> dict[str, object]:
-    """Create model instances matching the notebook model types."""
-    return {
-        "linear": LinearRegression(),
-        "ridge": Ridge(),
-        "rf": RandomForestRegressor(n_estimators=100, max_depth=10, random_state=42),
-    }
-
-
 def evaluate_models(
     models: dict[str, object],
     X_clean: pd.DataFrame,
@@ -70,6 +55,7 @@ def evaluate_models(
     """Evaluate models using the notebook's 5-fold cross-validation approach."""
     kf = KFold(n_splits=5, shuffle=True, random_state=42)
     results = []
+    labels_by_key = model_labels_by_key()
 
     for model_key, model in models.items():
         y_pred_cv = cross_val_predict(model, X_clean, y_clean, cv=kf)
@@ -80,6 +66,7 @@ def evaluate_models(
         results.append(
             {
                 "model_key": model_key,
+                "model_label": labels_by_key.get(model_key, model_key),
                 "rmse": rmse,
                 "mae": mae,
                 "r2": r2,
@@ -90,7 +77,7 @@ def evaluate_models(
 
     print("\nModel performance (5-fold CV):")
     for _, row in results_df.iterrows():
-        print(f"\n{row['model_key']}")
+        print(f"\n{row['model_label']}")
         print(f"  RMSE: {row['rmse']:.2f}")
         print(f"  MAE: {row['mae']:.2f}")
         print(f"  R2: {row['r2']:.4f}")
@@ -119,9 +106,8 @@ def save_artifacts(
     """Persist trained models and feature metadata."""
     models_dir.mkdir(parents=True, exist_ok=True)
 
-    joblib.dump(trained_models["linear"], models_dir / "linear_model.pkl")
-    joblib.dump(trained_models["ridge"], models_dir / "ridge_model.pkl")
-    joblib.dump(trained_models["rf"], models_dir / "rf_model.pkl")
+    for spec in MODEL_SPECS:
+        joblib.dump(trained_models[spec.key], models_dir / spec.filename)
     joblib.dump(feature_cols, models_dir / "features.pkl")
 
     print(f"\nSaved model artifacts to: {models_dir}")
@@ -156,7 +142,7 @@ def main() -> None:
 
     run_linear_train_test_check(X_clean, y_clean)
 
-    models = get_models()
+    models = build_models()
     evaluate_models(models, X_clean, y_clean)
 
     trained_models = train_models(models, X_clean, y_clean)

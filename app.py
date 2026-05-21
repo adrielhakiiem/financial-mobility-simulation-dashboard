@@ -6,19 +6,21 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 from joblib import load
+from model_config import (
+    DATA_PATH,
+    DEFAULT_MODEL_LABEL,
+    FEATURES_PATH,
+    METRICS_PATH,
+    MODELS_DIR,
+    TARGET_COL,
+    model_descriptions_by_label,
+    model_files_by_label,
+)
 
-
-DATA_PATH = Path("data/processed/final_dataset.csv")
-MODELS_DIR = Path("models")
-METRICS_PATH = MODELS_DIR / "metrics.csv"
-TARGET_COL = "income_median"
 TARGET_LABEL = "Median household income"
 
-MODEL_FILES = {
-    "Linear": "linear_model.pkl",
-    "Ridge": "ridge_model.pkl",
-    "Random Forest": "rf_model.pkl",
-}
+MODEL_FILES = model_files_by_label()
+MODEL_EXPLANATIONS = model_descriptions_by_label()
 
 FEATURE_GROUPS = {
     "Economic Indicators": ["poverty_absolute", "poverty_relative", "gini"],
@@ -44,6 +46,8 @@ FEATURE_HELP = {
 }
 
 _DEPRIVATION_FEATURES = frozenset({"poverty_absolute", "poverty_relative", "gini"})
+
+
 def apply_custom_style() -> None:
     st.markdown(
         """
@@ -663,6 +667,17 @@ def render_kpi_card(label: str, value: str) -> None:
     )
 
 
+def render_model_explanation_card(model_name: str, description: str) -> None:
+    st.markdown(
+        (
+            "<div class='section-note'>"
+            f"<strong>{html.escape(model_name)}:</strong> {html.escape(description)}"
+            "</div>"
+        ),
+        unsafe_allow_html=True,
+    )
+
+
 def style_axes(ax: plt.Axes) -> None:
     ax.set_facecolor("#111f33")
     ax.tick_params(colors="#c8d6e5")
@@ -812,8 +827,7 @@ def load_data() -> pd.DataFrame:
 
 @st.cache_resource
 def load_models() -> tuple[dict[str, object], list[str]]:
-    features_path = MODELS_DIR / "features.pkl"
-    if not features_path.exists():
+    if not FEATURES_PATH.exists():
         raise FileNotFoundError("Missing models/features.pkl. Train models first.")
 
     missing_model_files = [
@@ -823,7 +837,7 @@ def load_models() -> tuple[dict[str, object], list[str]]:
         missing_text = ", ".join(missing_model_files)
         raise FileNotFoundError(f"Missing model files: {missing_text}")
 
-    feature_cols = load(features_path)
+    feature_cols = load(FEATURES_PATH)
     models = {name: load(MODELS_DIR / filename) for name, filename in MODEL_FILES.items()}
     return models, feature_cols
 
@@ -896,8 +910,8 @@ def render_homepage() -> None:
             "</div>"
             "<div class='preview-kpis'>"
             "<div class='preview-kpi'><div class='preview-kpi-label'>Median income</div><p class='preview-kpi-value'>RM 5,420</p></div>"
-            "<div class='preview-kpi'><div class='preview-kpi-label'>District coverage</div><p class='preview-kpi-value'>137 districts</p></div>"
-            "<div class='preview-kpi'><div class='preview-kpi-label'>Best model</div><p class='preview-kpi-value'>Random Forest</p></div>"
+            "<div class='preview-kpi'><div class='preview-kpi-label'>District coverage</div><p class='preview-kpi-value'>160 districts</p></div>"
+            "<div class='preview-kpi'><div class='preview-kpi-label'>Best model</div><p class='preview-kpi-value'>Gradient Boosting</p></div>"
             "</div>"
             "<div class='preview-main'>"
             "<div class='preview-chart'>"
@@ -1022,11 +1036,20 @@ def main() -> None:
     district_options = sorted(df["district"].dropna().unique().tolist())
     feature_bounds = get_feature_bounds(df, feature_cols)
     feature_medians = df[feature_cols].median(numeric_only=True)
+    model_options = list(models.keys())
+    default_model_index = (
+        model_options.index(DEFAULT_MODEL_LABEL) if DEFAULT_MODEL_LABEL in model_options else 0
+    )
 
     _sidebar_section_kicker("Setup")
     st.sidebar.header("Explore settings")
     st.sidebar.caption("Choose a district and year baseline, then adjust local conditions.")
-    selected_model_name = st.sidebar.selectbox("Prediction model", list(models.keys()), index=2)
+    selected_model_name = st.sidebar.selectbox(
+        "Prediction model",
+        model_options,
+        index=default_model_index,
+    )
+    st.sidebar.caption(MODEL_EXPLANATIONS.get(selected_model_name, ""))
     selected_district = st.sidebar.selectbox("District", district_options)
     district_years = (
         df.loc[df["district"] == selected_district, "year"].dropna().astype(int).sort_values().unique().tolist()
@@ -1231,6 +1254,18 @@ def main() -> None:
             "not a new accuracy score.</p>",
             unsafe_allow_html=True,
         )
+        st.markdown(
+            "<div class='section-title'>What each model means</div>",
+            unsafe_allow_html=True,
+        )
+        st.caption("These descriptions stay fixed so the dashboard remains educational and easy to interpret.")
+        explainer_cols = st.columns(2)
+        for idx, model_name in enumerate(models.keys()):
+            with explainer_cols[idx % 2]:
+                render_model_explanation_card(
+                    model_name,
+                    MODEL_EXPLANATIONS.get(model_name, "No explanation available."),
+                )
 
         st.markdown(
             "<div class='section-title'>Scenario output across models</div>",
