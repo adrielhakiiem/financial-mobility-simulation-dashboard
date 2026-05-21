@@ -1,3 +1,4 @@
+import base64
 import html
 from pathlib import Path
 
@@ -18,9 +19,48 @@ from model_config import (
 )
 
 TARGET_LABEL = "Median household income"
+ASSETS_DIR = Path("assets/images")
+MAP_SOURCE_TEXT = "Source: OpenDOSM / Department of Statistics Malaysia (HIES 2022)"
 
 MODEL_FILES = model_files_by_label()
 MODEL_EXPLANATIONS = model_descriptions_by_label()
+NATIONAL_MAP_SPECS = [
+    {
+        "title": "Median Household Income",
+        "filename": "median_income.png",
+        "caption": (
+            "Typical household incomes are strongest in major urban and industrial regions."
+        ),
+    },
+    {
+        "title": "Mean Household Income",
+        "filename": "mean_income.png",
+        "caption": (
+            "Average incomes are highest where overall earning power is concentrated."
+        ),
+    },
+    {
+        "title": "Poverty Rate",
+        "filename": "poverty_rate.png",
+        "caption": (
+            "Poverty distribution varies significantly across districts."
+        ),
+    },
+    {
+        "title": "Mean Household Expenditure",
+        "filename": "mean_expenditure.png",
+        "caption": (
+            "Household spending is generally higher in more urban and connected districts."
+        ),
+    },
+    {
+        "title": "Gini Coefficient",
+        "filename": "gini_coefficient.png",
+        "caption": (
+            "Income inequality differs across districts even where incomes are relatively high."
+        ),
+    },
+]
 
 FEATURE_GROUPS = {
     "Economic Indicators": ["poverty_absolute", "poverty_relative", "gini"],
@@ -77,11 +117,17 @@ def apply_custom_style() -> None:
         .stApp {
             background: radial-gradient(circle at top left, #14253b 0%, #0f172a 55%, #0d1323 100%);
             color: var(--text);
-            padding: var(--spacing-unit);
+        }
+        [data-testid="stHeader"] {
+            background: rgba(15, 23, 42, 0.76);
+            border-bottom: 1px solid rgba(31, 51, 77, 0.7);
         }
         .block-container {
-            padding: calc(var(--spacing-unit) * 1.5);
-            max-width: 1200px;
+            max-width: 1288px;
+            padding-top: calc(var(--spacing-unit) * 2.5);
+            padding-right: calc(var(--spacing-unit) * 1.2);
+            padding-bottom: calc(var(--spacing-unit) * 1.65);
+            padding-left: calc(var(--spacing-unit) * 1.2);
         }
         h1 {
             font-size: 2.5rem;
@@ -97,27 +143,28 @@ def apply_custom_style() -> None:
         }
         /* Main column: page and section hierarchy (excludes sidebar) */
         [data-testid="stMain"] h1 {
-            font-size: 2.05rem;
+            font-size: 2.28rem;
             font-weight: 700;
-            letter-spacing: -0.02em;
-            color: #f1f7fc;
-            margin-bottom: 0.35rem;
-            line-height: 1.15;
+            letter-spacing: -0.03em;
+            color: #f4f8fc;
+            margin-top: 0.05rem;
+            margin-bottom: 0.28rem;
+            line-height: 1.08;
         }
         [data-testid="stMain"] h2 {
-            font-size: 1.28rem;
-            font-weight: 600;
-            color: #e8f0f8;
-            margin-top: 1.25rem;
-            margin-bottom: 0.5rem;
-            letter-spacing: -0.01em;
+            font-size: 1.38rem;
+            font-weight: 650;
+            color: #edf4fb;
+            margin-top: 1.45rem;
+            margin-bottom: 0.42rem;
+            letter-spacing: -0.018em;
         }
         [data-testid="stMain"] h3 {
-            font-size: 1.12rem;
+            font-size: 1.04rem;
             font-weight: 600;
-            color: #e2ebf5;
-            margin-top: 1.05rem;
-            margin-bottom: 0.45rem;
+            color: #dfe8f2;
+            margin-top: 0.95rem;
+            margin-bottom: 0.38rem;
         }
         [data-testid="stMain"] .stCaption {
             color: var(--body-support) !important;
@@ -128,11 +175,11 @@ def apply_custom_style() -> None:
             color: inherit !important;
         }
         .page-tagline {
-            font-size: 0.95rem;
+            font-size: 0.98rem;
             color: var(--body-support);
-            line-height: 1.5;
-            margin: 0 0 1.15rem;
-            max-width: 48rem;
+            line-height: 1.56;
+            margin: 0 0 1.4rem;
+            max-width: 50rem;
         }
         .pill {
             display: inline-block;
@@ -145,29 +192,38 @@ def apply_custom_style() -> None:
             border: 1px solid rgba(127, 183, 177, 0.28);
             border-radius: 999px;
             padding: 0.35rem 0.75rem;
-            margin-bottom: 0.65rem;
+            margin-bottom: 0.82rem;
+        }
+        .section-kicker {
+            display: inline-block;
+            font-size: 0.73rem;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            font-weight: 650;
+            color: #b8dce0;
+            margin: 0.12rem 0 0.42rem;
         }
         .section-title {
-            font-size: 1.18rem;
+            font-size: 1.42rem;
             font-weight: 700;
-            color: #eef4fb;
-            margin-top: 1.15rem;
-            margin-bottom: 0.45rem;
-            letter-spacing: -0.015em;
+            color: #f1f7fc;
+            margin-top: 1.32rem;
+            margin-bottom: 0.38rem;
+            letter-spacing: -0.022em;
         }
         .section-title:first-child {
-            margin-top: 0.25rem;
+            margin-top: 0.12rem;
         }
         .section-subtitle {
-            font-size: 0.96rem;
+            font-size: 0.97rem;
             font-weight: 400;
             color: var(--body-dim);
-            line-height: 1.62;
-            margin-bottom: 1rem;
-            max-width: 46rem;
+            line-height: 1.64;
+            margin-bottom: 0.92rem;
+            max-width: 47rem;
         }
         .section-subtitle--tight {
-            margin-bottom: 0.55rem;
+            margin-bottom: 0.5rem;
         }
         .viz-live-note {
             font-size: 0.9rem;
@@ -266,16 +322,65 @@ def apply_custom_style() -> None:
             border: 1px solid var(--border);
             border-left: 4px solid var(--accent);
             border-radius: 12px;
-            padding: 0.85rem 1rem;
-            margin-top: 0.6rem;
-            margin-bottom: 1.1rem;
+            padding: 0.82rem 0.96rem;
+            margin-top: 0.45rem;
+            margin-bottom: 1rem;
             color: var(--body-dim);
-            font-size: 0.93rem;
-            line-height: 1.55;
+            font-size: 0.92rem;
+            line-height: 1.52;
         }
         .section-note strong {
             color: #dcecf4;
             font-weight: 600;
+        }
+        .national-overview-intro {
+            color: var(--body-support);
+            font-size: 0.95rem;
+            line-height: 1.63;
+            margin: 0.08rem 0 1rem;
+            max-width: 56rem;
+        }
+        .national-map-card {
+            background: linear-gradient(145deg, rgba(20, 37, 58, 0.94) 0%, rgba(17, 31, 51, 0.98) 100%);
+            border: 1px solid rgba(31, 51, 77, 0.92);
+            border-radius: 18px;
+            box-shadow: 0 9px 22px rgba(7, 14, 27, 0.22);
+            padding: 0.82rem 0.82rem 0.76rem;
+            margin-bottom: 0.72rem;
+            min-height: 100%;
+        }
+        .national-map-title {
+            color: #eef4fb;
+            font-size: 1rem;
+            font-weight: 600;
+            letter-spacing: -0.01em;
+            margin-bottom: 0.52rem;
+        }
+        .national-map-image-wrap {
+            background: rgba(10, 19, 34, 0.68);
+            border: 1px solid rgba(31, 51, 77, 0.76);
+            border-radius: 14px;
+            padding: 0.34rem;
+            margin-bottom: 0.58rem;
+        }
+        .national-map-image {
+            display: block;
+            width: 100%;
+            height: auto;
+            border-radius: 10px;
+        }
+        .national-map-caption {
+            color: var(--body-dim);
+            font-size: 0.86rem;
+            line-height: 1.48;
+            margin: 0 0 0.48rem;
+        }
+        .national-map-source {
+            color: var(--accent-2);
+            font-size: 0.75rem;
+            letter-spacing: 0.02em;
+            line-height: 1.38;
+            margin: 0;
         }
         .stSidebar {
             background: #0b1220;
@@ -672,6 +777,33 @@ def render_model_explanation_card(model_name: str, description: str) -> None:
         (
             "<div class='section-note'>"
             f"<strong>{html.escape(model_name)}:</strong> {html.escape(description)}"
+            "</div>"
+        ),
+        unsafe_allow_html=True,
+    )
+
+
+@st.cache_data
+def load_image_base64(image_path: str) -> str:
+    return base64.b64encode(Path(image_path).read_bytes()).decode("utf-8")
+
+
+def render_national_map_card(title: str, image_path: Path, caption: str) -> None:
+    if not image_path.exists():
+        st.warning(f"Missing overview map: {image_path.name}")
+        return
+
+    image_b64 = load_image_base64(str(image_path))
+    st.markdown(
+        (
+            "<div class='national-map-card'>"
+            f"<div class='national-map-title'>{html.escape(title)}</div>"
+            "<div class='national-map-image-wrap'>"
+            f"<img class='national-map-image' src='data:image/png;base64,{image_b64}' "
+            f"alt='{html.escape(title)}' />"
+            "</div>"
+            f"<p class='national-map-caption'>{html.escape(caption)}</p>"
+            f"<p class='national-map-source'>{html.escape(MAP_SOURCE_TEXT)}</p>"
             "</div>"
         ),
         unsafe_allow_html=True,
@@ -1146,6 +1278,46 @@ def main() -> None:
     delta_from_actual = predicted_income - actual_income if not np.isnan(actual_income) else np.nan
     delta_from_baseline = predicted_income - baseline_prediction
 
+    st.markdown(
+        "<div class='section-note'><strong>Overview:</strong> "
+        "Start with the national picture, then move into district-level scenario testing and model comparison."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        "<div class='section-kicker'>National context</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        "<div class='section-title'>National Socioeconomic Overview</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        "<p class='national-overview-intro'>These official district-level socioeconomic overview maps from "
+        "OpenDOSM provide national context before district-level simulation begins. They help users see broad "
+        "patterns across Malaysia, while the dashboard combines that national perspective with interactive local exploration.</p>",
+        unsafe_allow_html=True,
+    )
+
+    first_row_cols = st.columns(3, gap="medium")
+    for col, map_spec in zip(first_row_cols, NATIONAL_MAP_SPECS[:3]):
+        with col:
+            render_national_map_card(
+                map_spec["title"],
+                ASSETS_DIR / map_spec["filename"],
+                map_spec["caption"],
+            )
+
+    second_row_cols = st.columns([0.28, 1, 1, 0.28], gap="medium")
+    for col, map_spec in zip(second_row_cols[1:3], NATIONAL_MAP_SPECS[3:]):
+        with col:
+            render_national_map_card(
+                map_spec["title"],
+                ASSETS_DIR / map_spec["filename"],
+                map_spec["caption"],
+            )
+
+    st.markdown("<div class='block-gap-chart'></div>", unsafe_allow_html=True)
     tabs = st.tabs(["Overview", "Prediction & Simulation", "Model Comparison", "Visualization"])
 
     with tabs[0]:
