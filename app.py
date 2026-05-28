@@ -1,6 +1,8 @@
 import base64
+from datetime import datetime, timezone
 import html
 from pathlib import Path
+from uuid import uuid4
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -119,6 +121,12 @@ PROJECTION_WARNING_THRESHOLDS = {
     "poverty": 1.5,
     "infrastructure": 2.0,
     "gini": 0.02,
+}
+PROJECTION_PRESET_OPTIONS = list(PROJECTION_PRESETS.keys()) + ["Custom"]
+APP_SECTIONS = {
+    "Projection Dashboard": "dashboard",
+    "My Scenarios": "scenarios",
+    "Methodology / About": "about",
 }
 
 
@@ -983,6 +991,8 @@ def format_distribution_insights_html(
 
 def apply_projection_preset() -> None:
     preset_name = st.session_state.get("projection_preset", "Baseline Stability")
+    if preset_name == "Custom":
+        return
     preset_values = PROJECTION_PRESETS.get(
         preset_name,
         PROJECTION_PRESETS["Baseline Stability"],
@@ -996,6 +1006,8 @@ def initialize_projection_controls() -> None:
         st.session_state["projection_preset"] = "Baseline Stability"
 
     preset_name = st.session_state["projection_preset"]
+    if preset_name == "Custom":
+        preset_name = "Baseline Stability"
     preset_values = PROJECTION_PRESETS.get(
         preset_name,
         PROJECTION_PRESETS["Baseline Stability"],
@@ -1017,6 +1029,194 @@ def projection_changes_are_aggressive(
             abs(gini_change) >= PROJECTION_WARNING_THRESHOLDS["gini"],
         ]
     )
+
+
+def initialize_app_state() -> None:
+    if "app_mode" not in st.session_state:
+        st.session_state["app_mode"] = "home"
+    if "app_section" not in st.session_state:
+        st.session_state["app_section"] = "dashboard"
+    if "projection_length" not in st.session_state:
+        st.session_state["projection_length"] = 3
+    if "saved_scenarios" not in st.session_state:
+        st.session_state["saved_scenarios"] = []
+    if "scenario_compare_ids" not in st.session_state:
+        st.session_state["scenario_compare_ids"] = []
+
+
+def go_to_home() -> None:
+    st.session_state["app_mode"] = "home"
+
+
+def sync_nav_state() -> None:
+    selected_label = st.session_state.get("app_nav_label", "Projection Dashboard")
+    st.session_state["app_section"] = APP_SECTIONS.get(selected_label, "dashboard")
+
+
+def render_sidebar_navigation() -> None:
+    reverse_sections = {value: key for key, value in APP_SECTIONS.items()}
+    current_label = reverse_sections.get(st.session_state.get("app_section"), "Projection Dashboard")
+    if st.session_state.get("app_nav_label") != current_label:
+        st.session_state["app_nav_label"] = current_label
+
+    _sidebar_section_kicker("App navigation")
+    st.sidebar.radio(
+        "Go to",
+        list(APP_SECTIONS.keys()),
+        key="app_nav_label",
+        on_change=sync_nav_state,
+    )
+    if st.sidebar.button("Home / Overview", use_container_width=True):
+        go_to_home()
+        st.rerun()
+    st.sidebar.divider()
+
+
+def to_storage_value(value: object) -> object:
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return {str(key): to_storage_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [to_storage_value(item) for item in value]
+    if isinstance(value, pd.Timestamp):
+        return value.isoformat()
+    if isinstance(value, (np.integer, np.floating)):
+        return value.item()
+    if isinstance(value, float) and np.isnan(value):
+        return None
+    if pd.isna(value):
+        return None
+    return value
+
+
+def dataframe_to_storage_records(df: pd.DataFrame) -> list[dict[str, object]]:
+    records = df.to_dict(orient="records")
+    return [to_storage_value(record) for record in records]
+
+
+def infer_projection_preset_name(
+    poverty_change: float,
+    infrastructure_change: float,
+    gini_change: float,
+) -> str:
+    for preset_name, preset_values in PROJECTION_PRESETS.items():
+        if (
+            abs(poverty_change - preset_values["poverty"]) < 1e-9
+            and abs(infrastructure_change - preset_values["infrastructure"]) < 1e-9
+            and abs(gini_change - preset_values["gini"]) < 1e-9
+        ):
+            return preset_name
+    return "Custom"
+
+
+def build_saved_scenario_record(
+    scenario_name: str,
+    selected_model_name: str,
+    selected_district: str,
+    selected_year: int | None,
+    baseline_values: dict[str, float],
+    input_values: dict[str, float],
+    simulation_years: int,
+    annual_poverty_change: float,
+    annual_infrastructure_change: float,
+    annual_gini_change: float,
+    predicted_income: float,
+    baseline_prediction: float,
+    actual_income: float,
+    projection_df: pd.DataFrame,
+) -> dict[str, object]:
+    preset_name = infer_projection_preset_name(
+        annual_poverty_change,
+        annual_infrastructure_change,
+        annual_gini_change,
+    )
+    final_projection = float(projection_df.iloc[-1]["Scenario projection (RM)"])
+    final_delta = float(projection_df.iloc[-1]["Δ vs baseline (RM)"])
+    record = {
+        "id": str(uuid4()),
+        "user_id": None,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "name": scenario_name.strip(),
+        "context": {
+            "district": selected_district,
+            "year": int(selected_year) if selected_year is not None else None,
+            "model_name": selected_model_name,
+            "projection_preset": preset_name,
+        },
+        "inputs": {
+            "baseline_features": baseline_values,
+            "scenario_features": input_values,
+        },
+        "projection_settings": {
+            "years": int(simulation_years),
+            "annual_poverty_change": float(annual_poverty_change),
+            "annual_infrastructure_change": float(annual_infrastructure_change),
+            "annual_gini_change": float(annual_gini_change),
+        },
+        "outputs": {
+            "current_prediction": float(predicted_income),
+            "baseline_prediction": float(baseline_prediction),
+            "actual_income": None if np.isnan(actual_income) else float(actual_income),
+            "final_projection": final_projection,
+            "final_delta_vs_baseline": final_delta,
+            "projection_rows": dataframe_to_storage_records(projection_df),
+        },
+    }
+    return to_storage_value(record)
+
+
+def save_scenario_record(record: dict[str, object]) -> None:
+    saved_scenarios = list(st.session_state.get("saved_scenarios", []))
+    saved_scenarios.insert(0, record)
+    st.session_state["saved_scenarios"] = saved_scenarios
+
+
+def load_scenario_into_state(scenario: dict[str, object]) -> None:
+    context = scenario.get("context", {})
+    inputs = scenario.get("inputs", {}).get("scenario_features", {})
+    projection_settings = scenario.get("projection_settings", {})
+
+    st.session_state["app_mode"] = "app"
+    st.session_state["app_section"] = "dashboard"
+    st.session_state["app_nav_label"] = "Projection Dashboard"
+    st.session_state["selected_model_name"] = context.get("model_name")
+    st.session_state["selected_district"] = context.get("district")
+    st.session_state["selected_year"] = context.get("year")
+    st.session_state["active_district"] = context.get("district")
+    st.session_state["active_year"] = context.get("year")
+    st.session_state["scenario_name_input"] = scenario.get("name", "")
+
+    for feature, value in inputs.items():
+        st.session_state[f"input_{feature}"] = float(value)
+
+    poverty_change = float(projection_settings.get("annual_poverty_change", 0.0))
+    infrastructure_change = float(projection_settings.get("annual_infrastructure_change", 0.0))
+    gini_change = float(projection_settings.get("annual_gini_change", 0.0))
+    preset_name = context.get("projection_preset") or infer_projection_preset_name(
+        poverty_change,
+        infrastructure_change,
+        gini_change,
+    )
+    if preset_name not in PROJECTION_PRESET_OPTIONS:
+        preset_name = "Custom"
+    st.session_state["projection_preset"] = preset_name
+    st.session_state[PROJECTION_CONTROL_KEYS["poverty"]] = poverty_change
+    st.session_state[PROJECTION_CONTROL_KEYS["infrastructure"]] = infrastructure_change
+    st.session_state[PROJECTION_CONTROL_KEYS["gini"]] = gini_change
+    st.session_state["projection_length"] = int(projection_settings.get("years", 3))
+    st.session_state["last_loaded_scenario_name"] = scenario.get("name", "")
+
+
+def delete_saved_scenario(scenario_id: str) -> None:
+    st.session_state["saved_scenarios"] = [
+        scenario
+        for scenario in st.session_state.get("saved_scenarios", [])
+        if scenario.get("id") != scenario_id
+    ]
+    st.session_state["scenario_compare_ids"] = [
+        sid for sid in st.session_state.get("scenario_compare_ids", []) if sid != scenario_id
+    ]
 
 
 @st.cache_data
@@ -1052,7 +1252,9 @@ def predict(model: object, feature_values: dict[str, float], feature_order: list
 
 
 def go_to_dashboard() -> None:
-    st.session_state["app_mode"] = "dashboard"
+    st.session_state["app_mode"] = "app"
+    st.session_state["app_section"] = "dashboard"
+    st.session_state["app_nav_label"] = "Projection Dashboard"
 
 
 def render_homepage() -> None:
@@ -1148,6 +1350,201 @@ def render_homepage() -> None:
         )
 
     st.markdown("</div>", unsafe_allow_html=True)
+
+
+def render_my_scenarios_page() -> None:
+    st.markdown(
+        "<div class='section-note'><strong>Reusable workflow:</strong> "
+        "Saved scenarios stay available during the current session so you can revisit, compare, and refine them."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown("<div class='section-title'>My Scenarios</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='section-subtitle'>"
+        "Save projection setups from the dashboard, reload them later in the same session, and compare different intervention paths side by side."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    saved_scenarios = list(st.session_state.get("saved_scenarios", []))
+    if not saved_scenarios:
+        st.info("No saved scenarios yet. Save a projection from the dashboard to start building your scenario library.")
+        if st.button("Open Projection Dashboard", type="primary"):
+            st.session_state["app_section"] = "dashboard"
+            st.session_state["app_nav_label"] = "Projection Dashboard"
+            st.rerun()
+        return
+
+    summary_rows: list[dict[str, object]] = []
+    scenario_lookup = {scenario["id"]: scenario for scenario in saved_scenarios}
+    for scenario in saved_scenarios:
+        context = scenario.get("context", {})
+        settings = scenario.get("projection_settings", {})
+        outputs = scenario.get("outputs", {})
+        summary_rows.append(
+            {
+                "Scenario": scenario.get("name", "Untitled"),
+                "District": context.get("district", "N/A"),
+                "Baseline year": context.get("year", "N/A"),
+                "Model": context.get("model_name", "N/A"),
+                "Projection years": settings.get("years", "N/A"),
+                "Current prediction (RM)": outputs.get("current_prediction"),
+                "Final projection (RM)": outputs.get("final_projection"),
+                "Final Δ vs baseline (RM)": outputs.get("final_delta_vs_baseline"),
+                "Saved at (UTC)": scenario.get("created_at", ""),
+            }
+        )
+
+    st.dataframe(
+        pd.DataFrame(summary_rows),
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Current prediction (RM)": st.column_config.NumberColumn("Current prediction (RM)", format="%.2f"),
+            "Final projection (RM)": st.column_config.NumberColumn("Final projection (RM)", format="%.2f"),
+            "Final Δ vs baseline (RM)": st.column_config.NumberColumn("Final Δ vs baseline (RM)", format="%.2f"),
+        },
+    )
+
+    compare_options = {
+        scenario["id"]: (
+            f"{scenario.get('name', 'Untitled')} | "
+            f"{scenario.get('context', {}).get('district', 'N/A')} | "
+            f"{scenario.get('context', {}).get('year', 'N/A')}"
+        )
+        for scenario in saved_scenarios
+    }
+    st.markdown("<div class='section-title'>Compare Saved Scenarios</div>", unsafe_allow_html=True)
+    selected_compare_ids = st.multiselect(
+        "Choose scenarios to compare",
+        options=list(compare_options.keys()),
+        default=st.session_state.get("scenario_compare_ids", []),
+        format_func=lambda scenario_id: compare_options[scenario_id],
+    )
+    st.session_state["scenario_compare_ids"] = selected_compare_ids
+
+    if selected_compare_ids:
+        compare_fig, compare_ax = plt.subplots(figsize=(9, 4.8))
+        compare_fig.patch.set_facecolor("#0f172a")
+        palette = ["#7fb7b1", "#6ea8fe", "#f6bd60", "#ef6f6c", "#b6c7d6"]
+        compare_summary_rows: list[dict[str, object]] = []
+
+        for idx, scenario_id in enumerate(selected_compare_ids):
+            scenario = scenario_lookup[scenario_id]
+            projection_rows = scenario.get("outputs", {}).get("projection_rows", [])
+            projection_df = pd.DataFrame(projection_rows)
+            if projection_df.empty:
+                continue
+
+            compare_ax.plot(
+                projection_df["Projection step"],
+                projection_df["Scenario projection (RM)"],
+                color=palette[idx % len(palette)],
+                marker="o",
+                linewidth=2.2,
+                label=scenario.get("name", "Untitled"),
+            )
+            compare_summary_rows.append(
+                {
+                    "Scenario": scenario.get("name", "Untitled"),
+                    "District": scenario.get("context", {}).get("district", "N/A"),
+                    "Baseline year": scenario.get("context", {}).get("year", "N/A"),
+                    "Model": scenario.get("context", {}).get("model_name", "N/A"),
+                    "Final projection (RM)": scenario.get("outputs", {}).get("final_projection"),
+                    "Final Δ vs baseline (RM)": scenario.get("outputs", {}).get("final_delta_vs_baseline"),
+                }
+            )
+
+        compare_ax.set_title("Saved intervention scenario comparison")
+        compare_ax.set_xlabel("Projection step")
+        compare_ax.set_ylabel(f"{TARGET_LABEL} (RM)")
+        compare_ax.legend(
+            loc="best",
+            facecolor="#0f172a",
+            edgecolor="#1f334d",
+            labelcolor="#e5edf5",
+        )
+        style_axes(compare_ax)
+        st.pyplot(compare_fig)
+        plt.close(compare_fig)
+        st.caption(
+            "Comparison uses each saved scenario's intervention projection path. Projection steps are shown on a relative timeline because saved scenarios can start from different baseline years."
+        )
+        st.dataframe(
+            pd.DataFrame(compare_summary_rows),
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Final projection (RM)": st.column_config.NumberColumn("Final projection (RM)", format="%.2f"),
+                "Final Δ vs baseline (RM)": st.column_config.NumberColumn("Final Δ vs baseline (RM)", format="%.2f"),
+            },
+        )
+    else:
+        st.caption("Select one or more saved scenarios to compare their projected intervention paths.")
+
+    st.markdown("<div class='section-title'>Saved Scenario Library</div>", unsafe_allow_html=True)
+    for scenario in saved_scenarios:
+        context = scenario.get("context", {})
+        settings = scenario.get("projection_settings", {})
+        outputs = scenario.get("outputs", {})
+        saved_at = str(scenario.get("created_at", "")).replace("T", " ").replace("+00:00", " UTC")
+        st.markdown(
+            (
+                "<div class='section-note'>"
+                f"<strong>{html.escape(str(scenario.get('name', 'Untitled')))}</strong><br/>"
+                f"District: {html.escape(str(context.get('district', 'N/A')))} | "
+                f"Baseline year: {html.escape(str(context.get('year', 'N/A')))} | "
+                f"Model: {html.escape(str(context.get('model_name', 'N/A')))}<br/>"
+                f"Projection length: {html.escape(str(settings.get('years', 'N/A')))} years | "
+                f"Current prediction: {html.escape(format_currency(outputs.get('current_prediction')))} | "
+                f"Final projection: {html.escape(format_currency(outputs.get('final_projection')))}<br/>"
+                f"Saved at: {html.escape(saved_at)}"
+                "</div>"
+            ),
+            unsafe_allow_html=True,
+        )
+        action_col1, action_col2 = st.columns([0.2, 0.8], gap="small")
+        with action_col1:
+            if st.button("Reload", key=f"reload_{scenario['id']}", use_container_width=True):
+                load_scenario_into_state(scenario)
+                st.rerun()
+        with action_col2:
+            if st.button("Delete", key=f"delete_{scenario['id']}", use_container_width=True):
+                delete_saved_scenario(str(scenario["id"]))
+                st.rerun()
+
+
+def render_methodology_page() -> None:
+    st.markdown(
+        "<div class='section-note'><strong>Methodology:</strong> "
+        "This application combines district-level socioeconomic indicators with fixed trained models and user-defined scenario projections."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown("<div class='section-title'>Methodology & About</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='section-subtitle'>"
+        "The app is designed as a reusable projection workspace. It preserves the original dashboard logic while adding session-based scenario saving for future account and database integration."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        """
+        <div class='section-note'>
+        <strong>Data sources:</strong> District-level indicators come from official DOSM data compiled by OpenDOSM.
+        <br/><br/>
+        <strong>Prediction method:</strong> The saved models estimate median household income from poverty, inequality, and infrastructure indicators.
+        <br/><br/>
+        <strong>Projection method:</strong> Multi-year projections apply user-defined annual indicator changes and score each projected year with the unchanged trained model.
+        <br/><br/>
+        <strong>Saved scenarios:</strong> Scenarios live only in Streamlit session state for now. The saved record structure is intentionally close to a future database row so it can later connect to authentication and cloud storage.
+        <br/><br/>
+        <strong>Interpretation:</strong> These outputs support scenario exploration and comparison. They should not be read as causal forecasts or policy effect estimates.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 @st.cache_data
@@ -1359,18 +1756,31 @@ def format_prediction_ranking_insight(percentile: float, sample_size: int) -> st
 def main() -> None:
     st.set_page_config(page_title="Financial Mobility Simulation Dashboard", layout="wide")
     apply_custom_style()
-
-    if "app_mode" not in st.session_state:
-        st.session_state["app_mode"] = "home"
-
+    initialize_app_state()
     if st.session_state["app_mode"] == "home":
         render_homepage()
         return
 
+    render_sidebar_navigation()
     st.markdown("<span class='pill'>Civic-tech analytics</span>", unsafe_allow_html=True)
     st.title("Financial Mobility Simulation Dashboard")
+    app_section = st.session_state.get("app_section", "dashboard")
+    if app_section == "scenarios":
+        st.markdown(
+            "<p class='page-tagline'>Manage saved projection scenarios and compare intervention paths within the current session.</p>",
+            unsafe_allow_html=True,
+        )
+        render_my_scenarios_page()
+        return
+    if app_section == "about":
+        st.markdown(
+            "<p class='page-tagline'>Review the projection method, modeling constraints, and session-based scenario workflow.</p>",
+            unsafe_allow_html=True,
+        )
+        render_methodology_page()
+        return
     st.markdown(
-        "<p class='page-tagline'>Explore district-level income outlooks with simple simulations "
+        "<p class='page-tagline'>Explore district-level income outlooks with simple scenario projections "
         "and clear explanations.</p>",
         unsafe_allow_html=True,
     )
@@ -1395,6 +1805,10 @@ def main() -> None:
     default_model_index = (
         model_options.index(DEFAULT_MODEL_LABEL) if DEFAULT_MODEL_LABEL in model_options else 0
     )
+    if st.session_state.get("selected_model_name") not in model_options:
+        st.session_state["selected_model_name"] = model_options[default_model_index]
+    if st.session_state.get("selected_district") not in district_options:
+        st.session_state["selected_district"] = district_options[0]
 
     _sidebar_section_kicker("Setup")
     st.sidebar.header("Explore settings")
@@ -1403,18 +1817,22 @@ def main() -> None:
         "Prediction model",
         model_options,
         index=default_model_index,
+        key="selected_model_name",
     )
     st.sidebar.caption(MODEL_EXPLANATIONS.get(selected_model_name, ""))
-    selected_district = st.sidebar.selectbox("District", district_options)
+    selected_district = st.sidebar.selectbox("District", district_options, key="selected_district")
     district_years = (
         df.loc[df["district"] == selected_district, "year"].dropna().astype(int).sort_values().unique().tolist()
         if "year" in df.columns
         else []
     )
+    if district_years and st.session_state.get("selected_year") not in district_years:
+        st.session_state["selected_year"] = district_years[-1]
     selected_year = st.sidebar.selectbox(
         "Baseline year",
         district_years,
         index=len(district_years) - 1 if district_years else 0,
+        key="selected_year",
         help="This year provides the baseline values and observed income for the district.",
     ) if district_years else None
 
@@ -1503,7 +1921,7 @@ def main() -> None:
     )
     st.sidebar.selectbox(
         "Scenario preset",
-        list(PROJECTION_PRESETS.keys()),
+        PROJECTION_PRESET_OPTIONS,
         key="projection_preset",
         on_change=apply_projection_preset,
         help="Choosing a preset fills the annual change inputs below. You can then fine-tune them manually.",
@@ -1512,7 +1930,7 @@ def main() -> None:
         "Projection length (years)",
         min_value=1,
         max_value=5,
-        value=3,
+        key="projection_length",
         help="Projects the current scenario forward for up to five additional years.",
     )
     annual_poverty_change = st.sidebar.number_input(
@@ -1827,6 +2245,35 @@ def main() -> None:
                 ),
             },
         )
+        st.markdown("<div class='section-title'>Save Current Scenario</div>", unsafe_allow_html=True)
+        st.caption(
+            "Save this projection setup to your session so you can reload it later or compare it in My Scenarios."
+        )
+        scenario_name = st.text_input(
+            "Scenario name",
+            key="scenario_name_input",
+            placeholder=f"{selected_district} {selected_year} intervention",
+        )
+        if st.button("Save Scenario", type="primary"):
+            resolved_name = scenario_name.strip() or f"{selected_district} {selected_year} intervention"
+            scenario_record = build_saved_scenario_record(
+                resolved_name,
+                selected_model_name,
+                selected_district,
+                int(selected_year) if selected_year is not None else None,
+                baseline_values,
+                input_values,
+                int(simulation_years),
+                float(annual_poverty_change),
+                float(annual_infrastructure_change),
+                float(annual_gini_change),
+                float(predicted_income),
+                float(baseline_prediction),
+                float(actual_income),
+                projection_df,
+            )
+            save_scenario_record(scenario_record)
+            st.success(f"Saved scenario: {resolved_name}")
 
     with tabs[2]:
         st.subheader("Model comparison")
