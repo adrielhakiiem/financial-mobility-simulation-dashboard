@@ -1048,6 +1048,11 @@ def go_to_home() -> None:
     st.session_state["app_mode"] = "home"
 
 
+def go_to_app_section(section: str) -> None:
+    st.session_state["app_mode"] = "app"
+    st.session_state["app_section"] = section
+
+
 def sync_nav_state() -> None:
     selected_label = st.session_state.get("app_nav_label", "Projection Dashboard")
     st.session_state["app_section"] = APP_SECTIONS.get(selected_label, "dashboard")
@@ -1177,9 +1182,7 @@ def load_scenario_into_state(scenario: dict[str, object]) -> None:
     inputs = scenario.get("inputs", {}).get("scenario_features", {})
     projection_settings = scenario.get("projection_settings", {})
 
-    st.session_state["app_mode"] = "app"
-    st.session_state["app_section"] = "dashboard"
-    st.session_state["app_nav_label"] = "Projection Dashboard"
+    go_to_app_section("dashboard")
     st.session_state["selected_model_name"] = context.get("model_name")
     st.session_state["selected_district"] = context.get("district")
     st.session_state["selected_year"] = context.get("year")
@@ -1252,9 +1255,7 @@ def predict(model: object, feature_values: dict[str, float], feature_order: list
 
 
 def go_to_dashboard() -> None:
-    st.session_state["app_mode"] = "app"
-    st.session_state["app_section"] = "dashboard"
-    st.session_state["app_nav_label"] = "Projection Dashboard"
+    go_to_app_section("dashboard")
 
 
 def render_homepage() -> None:
@@ -1370,10 +1371,11 @@ def render_my_scenarios_page() -> None:
     saved_scenarios = list(st.session_state.get("saved_scenarios", []))
     if not saved_scenarios:
         st.info("No saved scenarios yet. Save a projection from the dashboard to start building your scenario library.")
-        if st.button("Open Projection Dashboard", type="primary"):
-            st.session_state["app_section"] = "dashboard"
-            st.session_state["app_nav_label"] = "Projection Dashboard"
-            st.rerun()
+        st.button(
+            "Open Projection Dashboard",
+            type="primary",
+            on_click=go_to_dashboard,
+        )
         return
 
     summary_rows: list[dict[str, object]] = []
