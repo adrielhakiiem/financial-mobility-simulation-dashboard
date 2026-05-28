@@ -1614,6 +1614,28 @@ def clamp_feature_value(
     return float(min(max(value, min_v), max_v))
 
 
+def initialize_feature_input_state(
+    feature_cols: list[str],
+    baseline_values: dict[str, float],
+    selected_district: str,
+    selected_year: int | None,
+) -> None:
+    district_changed = st.session_state.get("active_district") != selected_district
+    year_changed = st.session_state.get("active_year") != selected_year
+
+    if district_changed or year_changed:
+        for feature in feature_cols:
+            st.session_state[f"input_{feature}"] = baseline_values[feature]
+        st.session_state["active_district"] = selected_district
+        st.session_state["active_year"] = selected_year
+        return
+
+    for feature in feature_cols:
+        state_key = f"input_{feature}"
+        if state_key not in st.session_state:
+            st.session_state[state_key] = baseline_values[feature]
+
+
 def apply_projection_changes(
     feature_values: dict[str, float],
     annual_feature_changes: dict[str, float],
@@ -1858,14 +1880,12 @@ def main() -> None:
             raw_value = feature_medians.get(feature, 0.0)
         baseline_values[feature] = float(raw_value)
 
-    if (
-        st.session_state.get("active_district") != selected_district
-        or st.session_state.get("active_year") != selected_year
-    ):
-        for feature in feature_cols:
-            st.session_state[f"input_{feature}"] = baseline_values[feature]
-        st.session_state["active_district"] = selected_district
-        st.session_state["active_year"] = selected_year
+    initialize_feature_input_state(
+        feature_cols,
+        baseline_values,
+        selected_district,
+        selected_year,
+    )
 
     _sidebar_section_kicker("Scenario actions", spaced=True)
     if st.sidebar.button("Reset to Baseline", use_container_width=True):
