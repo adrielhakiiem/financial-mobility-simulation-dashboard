@@ -88,6 +88,38 @@ FEATURE_HELP = {
 _DEPRIVATION_FEATURES = frozenset({"poverty_absolute", "poverty_relative", "gini"})
 _POVERTY_PROJECTION_FEATURES = ("poverty_absolute", "poverty_relative")
 _INFRASTRUCTURE_PROJECTION_FEATURES = ("piped_water", "sanitation", "electricity")
+PROJECTION_CONTROL_KEYS = {
+    "poverty": "projection_poverty_change",
+    "infrastructure": "projection_infrastructure_change",
+    "gini": "projection_gini_change",
+}
+PROJECTION_PRESETS = {
+    "Baseline Stability": {
+        "poverty": 0.0,
+        "infrastructure": 0.0,
+        "gini": 0.0,
+    },
+    "Infrastructure Investment": {
+        "poverty": -0.4,
+        "infrastructure": 1.2,
+        "gini": -0.005,
+    },
+    "Poverty Reduction Initiative": {
+        "poverty": -1.0,
+        "infrastructure": 0.5,
+        "gini": -0.01,
+    },
+    "Economic Downturn": {
+        "poverty": 1.2,
+        "infrastructure": -0.6,
+        "gini": 0.012,
+    },
+}
+PROJECTION_WARNING_THRESHOLDS = {
+    "poverty": 1.5,
+    "infrastructure": 2.0,
+    "gini": 0.02,
+}
 
 
 def apply_custom_style() -> None:
@@ -949,6 +981,44 @@ def format_distribution_insights_html(
     return '<ul class="interpretation-list">' + "".join(parts) + "</ul>"
 
 
+def apply_projection_preset() -> None:
+    preset_name = st.session_state.get("projection_preset", "Baseline Stability")
+    preset_values = PROJECTION_PRESETS.get(
+        preset_name,
+        PROJECTION_PRESETS["Baseline Stability"],
+    )
+    for preset_key, state_key in PROJECTION_CONTROL_KEYS.items():
+        st.session_state[state_key] = float(preset_values[preset_key])
+
+
+def initialize_projection_controls() -> None:
+    if "projection_preset" not in st.session_state:
+        st.session_state["projection_preset"] = "Baseline Stability"
+
+    preset_name = st.session_state["projection_preset"]
+    preset_values = PROJECTION_PRESETS.get(
+        preset_name,
+        PROJECTION_PRESETS["Baseline Stability"],
+    )
+    for preset_key, state_key in PROJECTION_CONTROL_KEYS.items():
+        if state_key not in st.session_state:
+            st.session_state[state_key] = float(preset_values[preset_key])
+
+
+def projection_changes_are_aggressive(
+    poverty_change: float,
+    infrastructure_change: float,
+    gini_change: float,
+) -> bool:
+    return any(
+        [
+            abs(poverty_change) >= PROJECTION_WARNING_THRESHOLDS["poverty"],
+            abs(infrastructure_change) >= PROJECTION_WARNING_THRESHOLDS["infrastructure"],
+            abs(gini_change) >= PROJECTION_WARNING_THRESHOLDS["gini"],
+        ]
+    )
+
+
 @st.cache_data
 def load_data() -> pd.DataFrame:
     df = pd.read_csv(DATA_PATH)
@@ -1321,6 +1391,7 @@ def main() -> None:
     feature_bounds = get_feature_bounds(df, feature_cols)
     feature_medians = df[feature_cols].median(numeric_only=True)
     model_options = list(models.keys())
+    initialize_projection_controls()
     default_model_index = (
         model_options.index(DEFAULT_MODEL_LABEL) if DEFAULT_MODEL_LABEL in model_options else 0
     )
@@ -1430,8 +1501,15 @@ def main() -> None:
         "Project the current scenario forward by changing the existing indicators each year. "
         "This is a scenario projection, not a causal economic simulation."
     )
+    st.sidebar.selectbox(
+        "Scenario preset",
+        list(PROJECTION_PRESETS.keys()),
+        key="projection_preset",
+        on_change=apply_projection_preset,
+        help="Choosing a preset fills the annual change inputs below. You can then fine-tune them manually.",
+    )
     simulation_years = st.sidebar.slider(
-        "Simulation length (years)",
+        "Projection length (years)",
         min_value=1,
         max_value=5,
         value=3,
@@ -1439,10 +1517,10 @@ def main() -> None:
     )
     annual_poverty_change = st.sidebar.number_input(
         "Annual poverty change (pp)",
-        min_value=-10.0,
-        max_value=10.0,
-        value=0.0,
+        min_value=-2.0,
+        max_value=2.0,
         step=0.1,
+        key=PROJECTION_CONTROL_KEYS["poverty"],
         help=(
             "Applied each year to both absolute and relative poverty rates. "
             "Negative values reduce poverty; positive values increase it."
@@ -1450,10 +1528,10 @@ def main() -> None:
     )
     annual_infrastructure_change = st.sidebar.number_input(
         "Annual infrastructure change (pp)",
-        min_value=-10.0,
-        max_value=10.0,
-        value=0.0,
+        min_value=-3.0,
+        max_value=3.0,
         step=0.1,
+        key=PROJECTION_CONTROL_KEYS["infrastructure"],
         help=(
             "Applied each year to piped water, sanitation, and electricity access. "
             "Positive values improve access; negative values reduce it."
@@ -1461,13 +1539,22 @@ def main() -> None:
     )
     annual_gini_change = st.sidebar.number_input(
         "Annual Gini change",
-        min_value=-0.1,
-        max_value=0.1,
-        value=0.0,
+        min_value=-0.03,
+        max_value=0.03,
         step=0.001,
         format="%.3f",
+        key=PROJECTION_CONTROL_KEYS["gini"],
         help="Applied each year to the Gini coefficient. Negative values reduce inequality.",
     )
+    st.sidebar.caption(
+        "These annual changes define how the indicators progress over time; each projected year is then scored by the existing trained model."
+    )
+    if projection_changes_are_aggressive(
+        float(annual_poverty_change),
+        float(annual_infrastructure_change),
+        float(annual_gini_change),
+    ):
+        st.sidebar.warning("Extreme annual changes may produce unrealistic long-term projections.")
 
     annual_feature_changes = {feature: 0.0 for feature in feature_cols}
     for feature in _POVERTY_PROJECTION_FEATURES:
@@ -1563,7 +1650,7 @@ def main() -> None:
         )
 
     st.markdown("<div class='block-gap-chart'></div>", unsafe_allow_html=True)
-    tabs = st.tabs(["Overview", "Prediction & Simulation", "Model Comparison", "Visualization"])
+    tabs = st.tabs(["Overview", "Prediction & Projection", "Model Comparison", "Visualization"])
 
     with tabs[0]:
         st.markdown(
@@ -1619,7 +1706,7 @@ def main() -> None:
 
     with tabs[1]:
         st.markdown(
-            "<div class='section-note'><strong>Simulation:</strong> "
+            "<div class='section-note'><strong>Scenario projection:</strong> "
             "Compare the baseline with your scenario and see how predicted income changes."
             "</div>",
             unsafe_allow_html=True,
@@ -1681,7 +1768,7 @@ def main() -> None:
         st.divider()
         st.subheader("Multi-year scenario projection")
         st.caption(
-            "Projected values come from yearly changes to the existing indicators only. "
+            "Projected values come from user-defined yearly changes to the existing indicators only. "
             "The trained model is reused as-is for each projected year, and predicted income "
             "is not fed back into future inputs."
         )
@@ -1691,8 +1778,9 @@ def main() -> None:
         projection_ax.plot(
             projection_df["Projection step"],
             projection_df["Baseline projection (RM)"],
-            color="#6ea8fe",
+            color="#8ca3b8",
             marker="o",
+            linestyle="--",
             linewidth=2,
             label="Baseline projection",
         )
@@ -1701,10 +1789,10 @@ def main() -> None:
             projection_df["Scenario projection (RM)"],
             color="#7fb7b1",
             marker="o",
-            linewidth=2,
-            label="Scenario projection",
+            linewidth=2.5,
+            label="Intervention projection",
         )
-        projection_ax.set_title("Baseline vs scenario projection")
+        projection_ax.set_title("Baseline vs intervention scenario projection")
         projection_ax.set_xlabel("Projection year")
         projection_ax.set_ylabel(f"{TARGET_LABEL} (RM)")
         projection_ax.set_xticks(projection_df["Projection step"])
@@ -1730,7 +1818,7 @@ def main() -> None:
                     format="%.2f",
                 ),
                 "Scenario projection (RM)": st.column_config.NumberColumn(
-                    "Scenario projection (RM)",
+                    "Intervention projection (RM)",
                     format="%.2f",
                 ),
                 "Δ vs baseline (RM)": st.column_config.NumberColumn(
