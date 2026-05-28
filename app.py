@@ -1134,6 +1134,44 @@ def get_feature_bounds(df: pd.DataFrame, feature_cols: list[str]) -> dict[str, t
     return bounds
 
 
+def compute_prediction_ranking(
+    df: pd.DataFrame,
+    model: object,
+    feature_cols: list[str],
+    predicted_income: float,
+    year: int | None,
+) -> tuple[float, int]:
+    if year is not None and "year" in df.columns:
+        ranking_df = df[df["year"] == year].copy()
+    else:
+        ranking_df = df.copy()
+
+    ranking_df = ranking_df.dropna(subset=feature_cols)
+    if ranking_df.empty:
+        return np.nan, 0
+
+    predictions = model.predict(ranking_df[feature_cols])
+    predictions_series = pd.Series(predictions).astype(float)
+    if predictions_series.empty:
+        return np.nan, 0
+
+    percentile = float((predictions_series <= predicted_income).mean() * 100.0)
+    return percentile, int(predictions_series.shape[0])
+
+
+def format_prediction_ranking_insight(percentile: float, sample_size: int) -> str:
+    if np.isnan(percentile) or sample_size <= 0:
+        return "Ranking insight is unavailable for the current selection."
+
+    if percentile >= 80:
+        return f"This district ranks in the top {100 - int(percentile // 1)}% of predicted income among {sample_size} districts."
+    if percentile <= 20:
+        return f"This district ranks in the bottom {int(percentile // 1)}% of predicted income among {sample_size} districts."
+    if percentile < 50:
+        return "This district performs below the national median predicted income level."
+    return "This district performs above the national median predicted income level."
+
+
 def main() -> None:
     st.set_page_config(page_title="Financial Mobility Simulation Dashboard", layout="wide")
     apply_custom_style()
@@ -1317,6 +1355,32 @@ def main() -> None:
                 map_spec["caption"],
             )
 
+    with st.expander("Data & Methodology", expanded=False):
+        st.markdown(
+            """
+            <div class='section-note'>
+            <strong>Data sources:</strong> District-level indicators come from official DOSM data
+            compiled by OpenDOSM for civic-tech use.
+            <br/><br/>
+            <strong>Why only 2019 and 2022?</strong> These are the most recent nationwide years
+            where the district datasets are complete and comparable.
+            <br/><br/>
+            <strong>Why about 300 rows?</strong> The dataset includes districts across two years,
+            so the row count reflects districts multiplied by 2019 and 2022 entries.
+            <br/><br/>
+            <strong>How to interpret results:</strong> This dashboard is a scenario simulation tool.
+            It helps explore "what if" adjustments to local conditions, not causal forecasts.
+            <br/><br/>
+            <strong>Model evaluation:</strong> We compare models using cross-validation, a standard
+            way to check how well a model performs on held-out data.
+            <br/><br/>
+            <strong>What features are used?</strong> Poverty, inequality, and infrastructure indicators
+            are used as predictive inputs to estimate income outcomes.
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
     st.markdown("<div class='block-gap-chart'></div>", unsafe_allow_html=True)
     tabs = st.tabs(["Overview", "Prediction & Simulation", "Model Comparison", "Visualization"])
 
@@ -1393,6 +1457,22 @@ def main() -> None:
         else:
             pred_col2.metric("Observed income", format_currency(actual_income))
             pred_col3.metric("Difference from observed", f"RM {delta_from_actual:+,.2f}")
+
+        percentile, sample_size = compute_prediction_ranking(
+            df,
+            selected_model,
+            feature_cols,
+            predicted_income,
+            selected_year,
+        )
+        ranking_text = format_prediction_ranking_insight(percentile, sample_size)
+        st.markdown(
+            "<div class='kpi-card'>"
+            "<div class='kpi-label'>District ranking insight</div>"
+            f"<div class='kpi-value' style='font-size:1rem; line-height:1.5;'>{html.escape(ranking_text)}</div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
 
         st.caption("Adjust the sidebar values to explore a different scenario.")
 
