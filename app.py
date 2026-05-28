@@ -86,6 +86,8 @@ FEATURE_HELP = {
 }
 
 _DEPRIVATION_FEATURES = frozenset({"poverty_absolute", "poverty_relative", "gini"})
+_POVERTY_PROJECTION_FEATURES = ("poverty_absolute", "poverty_relative")
+_INFRASTRUCTURE_PROJECTION_FEATURES = ("piped_water", "sanitation", "electricity")
 
 
 def apply_custom_style() -> None:
@@ -1134,6 +1136,118 @@ def get_feature_bounds(df: pd.DataFrame, feature_cols: list[str]) -> dict[str, t
     return bounds
 
 
+def clamp_feature_value(
+    feature: str,
+    value: float,
+    feature_bounds: dict[str, tuple[float, float]],
+) -> float:
+    min_v, max_v = feature_bounds[feature]
+    return float(min(max(value, min_v), max_v))
+
+
+def apply_projection_changes(
+    feature_values: dict[str, float],
+    annual_feature_changes: dict[str, float],
+    feature_bounds: dict[str, tuple[float, float]],
+) -> dict[str, float]:
+    updated_values: dict[str, float] = {}
+    for feature, value in feature_values.items():
+        next_value = value + annual_feature_changes.get(feature, 0.0)
+        updated_values[feature] = clamp_feature_value(feature, next_value, feature_bounds)
+    return updated_values
+
+
+def build_projection_rows(
+    model: object,
+    start_values: dict[str, float],
+    annual_feature_changes: dict[str, float],
+    feature_order: list[str],
+    feature_bounds: dict[str, tuple[float, float]],
+    years: int,
+) -> list[dict[str, object]]:
+    """
+    Project the current feature row forward by applying annual indicator changes only.
+
+    Predictions remain standard model inferences on the projected feature row. The
+    predicted income is never reused as a future model input, which keeps the
+    projection compatible with the existing trained models and feature schema.
+    """
+    rows: list[dict[str, object]] = []
+    current_values = {feature: float(value) for feature, value in start_values.items()}
+
+    for step in range(years + 1):
+        rows.append(
+            {
+                "step": step,
+                "prediction": predict(model, current_values, feature_order),
+                "feature_values": current_values.copy(),
+            }
+        )
+        if step < years:
+            # Clamp projected indicators to the observed training range so the
+            # projection stays within the model's known feature support.
+            current_values = apply_projection_changes(
+                current_values,
+                annual_feature_changes,
+                feature_bounds,
+            )
+
+    return rows
+
+
+def build_projection_comparison_df(
+    model: object,
+    baseline_values: dict[str, float],
+    scenario_values: dict[str, float],
+    annual_feature_changes: dict[str, float],
+    feature_order: list[str],
+    feature_bounds: dict[str, tuple[float, float]],
+    years: int,
+    base_year: int | None,
+) -> pd.DataFrame:
+    baseline_rows = build_projection_rows(
+        model,
+        baseline_values,
+        {feature: 0.0 for feature in feature_order},
+        feature_order,
+        feature_bounds,
+        years,
+    )
+    scenario_rows = build_projection_rows(
+        model,
+        scenario_values,
+        annual_feature_changes,
+        feature_order,
+        feature_bounds,
+        years,
+    )
+
+    projection_rows: list[dict[str, object]] = []
+    for baseline_row, scenario_row in zip(baseline_rows, scenario_rows):
+        step = int(scenario_row["step"])
+        if base_year is None:
+            year_label = "Current" if step == 0 else f"Year {step}"
+        else:
+            year_label = str(base_year + step)
+
+        row: dict[str, object] = {
+            "Projection step": step,
+            "Year": year_label,
+            "Baseline projection (RM)": float(baseline_row["prediction"]),
+            "Scenario projection (RM)": float(scenario_row["prediction"]),
+        }
+        row["Δ vs baseline (RM)"] = (
+            row["Scenario projection (RM)"] - row["Baseline projection (RM)"]
+        )
+        for feature in feature_order:
+            row[FEATURE_LABELS.get(feature, feature.replace("_", " ").title())] = float(
+                scenario_row["feature_values"][feature]
+            )
+        projection_rows.append(row)
+
+    return pd.DataFrame(projection_rows)
+
+
 def compute_prediction_ranking(
     df: pd.DataFrame,
     model: object,
@@ -1308,6 +1422,63 @@ def main() -> None:
             help=FEATURE_HELP.get(feature, "Simulated feature input value."),
         )
 
+    st.sidebar.divider()
+
+    _sidebar_section_kicker("Projection settings")
+    st.sidebar.subheader("Scenario projection")
+    st.sidebar.caption(
+        "Project the current scenario forward by changing the existing indicators each year. "
+        "This is a scenario projection, not a causal economic simulation."
+    )
+    simulation_years = st.sidebar.slider(
+        "Simulation length (years)",
+        min_value=1,
+        max_value=5,
+        value=3,
+        help="Projects the current scenario forward for up to five additional years.",
+    )
+    annual_poverty_change = st.sidebar.number_input(
+        "Annual poverty change (pp)",
+        min_value=-10.0,
+        max_value=10.0,
+        value=0.0,
+        step=0.1,
+        help=(
+            "Applied each year to both absolute and relative poverty rates. "
+            "Negative values reduce poverty; positive values increase it."
+        ),
+    )
+    annual_infrastructure_change = st.sidebar.number_input(
+        "Annual infrastructure change (pp)",
+        min_value=-10.0,
+        max_value=10.0,
+        value=0.0,
+        step=0.1,
+        help=(
+            "Applied each year to piped water, sanitation, and electricity access. "
+            "Positive values improve access; negative values reduce it."
+        ),
+    )
+    annual_gini_change = st.sidebar.number_input(
+        "Annual Gini change",
+        min_value=-0.1,
+        max_value=0.1,
+        value=0.0,
+        step=0.001,
+        format="%.3f",
+        help="Applied each year to the Gini coefficient. Negative values reduce inequality.",
+    )
+
+    annual_feature_changes = {feature: 0.0 for feature in feature_cols}
+    for feature in _POVERTY_PROJECTION_FEATURES:
+        if feature in annual_feature_changes:
+            annual_feature_changes[feature] = float(annual_poverty_change)
+    for feature in _INFRASTRUCTURE_PROJECTION_FEATURES:
+        if feature in annual_feature_changes:
+            annual_feature_changes[feature] = float(annual_infrastructure_change)
+    if "gini" in annual_feature_changes:
+        annual_feature_changes["gini"] = float(annual_gini_change)
+
     selected_model = models[selected_model_name]
     predicted_income = predict(selected_model, input_values, feature_cols)
     baseline_prediction = predict(selected_model, baseline_values, feature_cols)
@@ -1315,6 +1486,16 @@ def main() -> None:
 
     delta_from_actual = predicted_income - actual_income if not np.isnan(actual_income) else np.nan
     delta_from_baseline = predicted_income - baseline_prediction
+    projection_df = build_projection_comparison_df(
+        selected_model,
+        baseline_values,
+        input_values,
+        annual_feature_changes,
+        feature_cols,
+        feature_bounds,
+        simulation_years,
+        int(selected_year) if selected_year is not None else None,
+    )
 
     st.markdown(
         "<div class='section-note'><strong>Overview:</strong> "
@@ -1496,6 +1677,68 @@ def main() -> None:
             st.dataframe(pd.DataFrame(changes), use_container_width=True, hide_index=True)
         else:
             st.info("No scenario changes yet. Inputs match district baseline values.")
+
+        st.divider()
+        st.subheader("Multi-year scenario projection")
+        st.caption(
+            "Projected values come from yearly changes to the existing indicators only. "
+            "The trained model is reused as-is for each projected year, and predicted income "
+            "is not fed back into future inputs."
+        )
+
+        projection_fig, projection_ax = plt.subplots(figsize=(9, 4.8))
+        projection_fig.patch.set_facecolor("#0f172a")
+        projection_ax.plot(
+            projection_df["Projection step"],
+            projection_df["Baseline projection (RM)"],
+            color="#6ea8fe",
+            marker="o",
+            linewidth=2,
+            label="Baseline projection",
+        )
+        projection_ax.plot(
+            projection_df["Projection step"],
+            projection_df["Scenario projection (RM)"],
+            color="#7fb7b1",
+            marker="o",
+            linewidth=2,
+            label="Scenario projection",
+        )
+        projection_ax.set_title("Baseline vs scenario projection")
+        projection_ax.set_xlabel("Projection year")
+        projection_ax.set_ylabel(f"{TARGET_LABEL} (RM)")
+        projection_ax.set_xticks(projection_df["Projection step"])
+        projection_ax.set_xticklabels(projection_df["Year"])
+        projection_ax.legend(
+            loc="best",
+            facecolor="#0f172a",
+            edgecolor="#1f334d",
+            labelcolor="#e5edf5",
+        )
+        style_axes(projection_ax)
+        st.pyplot(projection_fig)
+        plt.close(projection_fig)
+
+        st.dataframe(
+            projection_df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Year": st.column_config.TextColumn("Year", width="small"),
+                "Baseline projection (RM)": st.column_config.NumberColumn(
+                    "Baseline projection (RM)",
+                    format="%.2f",
+                ),
+                "Scenario projection (RM)": st.column_config.NumberColumn(
+                    "Scenario projection (RM)",
+                    format="%.2f",
+                ),
+                "Δ vs baseline (RM)": st.column_config.NumberColumn(
+                    "Δ vs baseline (RM)",
+                    format="%.2f",
+                ),
+            },
+        )
 
     with tabs[2]:
         st.subheader("Model comparison")
