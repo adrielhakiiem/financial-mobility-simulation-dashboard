@@ -1,6 +1,7 @@
 import base64
 from datetime import datetime, timezone
 import html
+import os
 from pathlib import Path
 from uuid import uuid4
 
@@ -9,6 +10,11 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 from joblib import load
+try:
+    from supabase import Client, create_client
+except ImportError:
+    Client = object  # type: ignore[assignment]
+    create_client = None  # type: ignore[assignment]
 from model_config import (
     DATA_PATH,
     DEFAULT_MODEL_LABEL,
@@ -128,6 +134,13 @@ APP_SECTIONS = {
     "My Scenarios": "scenarios",
     "Methodology / About": "about",
 }
+ROUTE_QUERY_PARAM = "page"
+BROWSER_SESSION_QUERY_PARAM = "browser_session"
+HOME_ROUTE = "home"
+SUPABASE_SCENARIOS_TABLE = "scenarios"
+SUPABASE_SCENARIO_COLUMNS = (
+    "id, user_id, scenario_name, created_at, context, inputs, projection_settings, outputs"
+)
 
 
 def apply_custom_style() -> None:
@@ -1031,31 +1044,376 @@ def projection_changes_are_aggressive(
     )
 
 
+def get_query_param_value(key: str) -> str | None:
+    query_params = getattr(st, "query_params", None)
+    if query_params is not None:
+        value = query_params.get(key)
+        if isinstance(value, list):
+            return str(value[0]) if value else None
+        return str(value) if value is not None else None
+
+    if hasattr(st, "experimental_get_query_params"):
+        values = st.experimental_get_query_params().get(key, [])
+        return str(values[0]) if values else None
+    return None
+
+
+def replace_query_params(params: dict[str, str]) -> None:
+    clean_params = {key: str(value) for key, value in params.items() if value}
+    query_params = getattr(st, "query_params", None)
+    if query_params is not None:
+        for key in list(query_params.keys()):
+            del query_params[key]
+        for key, value in clean_params.items():
+            query_params[key] = value
+        return
+
+    if hasattr(st, "experimental_set_query_params"):
+        st.experimental_set_query_params(**clean_params)
+
+
+def get_current_route() -> str:
+    if st.session_state.get("app_mode") == "home":
+        return HOME_ROUTE
+    section = str(st.session_state.get("app_section", "dashboard"))
+    return section if section in APP_SECTIONS.values() else "dashboard"
+
+
+def get_browser_session_id() -> str | None:
+    value = st.session_state.get("browser_session_id")
+    return str(value) if value else None
+
+
+def persist_browser_state_to_query_params() -> None:
+    params = {
+        ROUTE_QUERY_PARAM: get_current_route(),
+    }
+    browser_session_id = get_browser_session_id()
+    if browser_session_id:
+        params[BROWSER_SESSION_QUERY_PARAM] = browser_session_id
+    replace_query_params(params)
+
+
+def hydrate_navigation_from_query_params() -> tuple[str, str]:
+    route = get_query_param_value(ROUTE_QUERY_PARAM)
+    if route == HOME_ROUTE:
+        return "home", "dashboard"
+    if route in APP_SECTIONS.values():
+        return "app", route
+    return "home", "dashboard"
+
+
+@st.cache_resource
+def get_browser_session_registry() -> dict[str, dict[str, object]]:
+    return {}
+
+
+def ensure_browser_session_id() -> str:
+    browser_session_id = get_browser_session_id()
+    if browser_session_id:
+        return browser_session_id
+
+    browser_session_id = get_query_param_value(BROWSER_SESSION_QUERY_PARAM) or str(uuid4())
+    st.session_state["browser_session_id"] = browser_session_id
+    return browser_session_id
+
+
+def remove_browser_session_registry_entry() -> None:
+    browser_session_id = get_browser_session_id()
+    if not browser_session_id:
+        return
+    get_browser_session_registry().pop(browser_session_id, None)
+
+
+def persist_auth_state_to_registry() -> None:
+    auth_user = get_current_auth_user()
+    access_token = st.session_state.get("supabase_access_token")
+    refresh_token = st.session_state.get("supabase_refresh_token")
+    if not auth_user or not access_token or not refresh_token:
+        return
+
+    browser_session_id = ensure_browser_session_id()
+    get_browser_session_registry()[browser_session_id] = {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "auth_user": auth_user,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def hydrate_auth_state_from_registry() -> None:
+    if st.session_state.get("supabase_access_token") and st.session_state.get("supabase_refresh_token"):
+        return
+
+    browser_session_id = get_browser_session_id() or get_query_param_value(BROWSER_SESSION_QUERY_PARAM)
+    if not browser_session_id:
+        return
+
+    st.session_state["browser_session_id"] = browser_session_id
+    auth_snapshot = get_browser_session_registry().get(browser_session_id)
+    if not auth_snapshot:
+        return
+
+    st.session_state["supabase_access_token"] = auth_snapshot.get("access_token")
+    st.session_state["supabase_refresh_token"] = auth_snapshot.get("refresh_token")
+    st.session_state["auth_user"] = auth_snapshot.get("auth_user")
+
+
+def get_secret_or_env(*keys: str) -> str | None:
+    for key in keys:
+        try:
+            if key in st.secrets:
+                value = st.secrets[key]
+                if value:
+                    return str(value)
+        except Exception:
+            pass
+        value = os.getenv(key)
+        if value:
+            return value
+    return None
+
+
+def get_supabase_config() -> tuple[str | None, str | None]:
+    url = get_secret_or_env("SUPABASE_URL")
+    key = get_secret_or_env("SUPABASE_PUBLISHABLE_KEY", "SUPABASE_ANON_KEY", "SUPABASE_KEY")
+    return url, key
+
+
+def get_supabase_unavailable_reason() -> str | None:
+    if create_client is None:
+        return "Supabase support is unavailable because the Python client is not installed."
+    url, key = get_supabase_config()
+    if not url or not key:
+        return (
+            "Supabase authentication is unavailable because `SUPABASE_URL` and "
+            "`SUPABASE_PUBLISHABLE_KEY` are not configured."
+        )
+    return None
+
+
+def create_supabase_client_or_none() -> Client | None:
+    unavailable_reason = get_supabase_unavailable_reason()
+    if unavailable_reason is not None:
+        return None
+
+    url, key = get_supabase_config()
+    if not url or not key or create_client is None:
+        return None
+    return create_client(url, key)
+
+
+def get_current_auth_user() -> dict[str, str] | None:
+    auth_user = st.session_state.get("auth_user")
+    return auth_user if isinstance(auth_user, dict) else None
+
+
+def is_authenticated_user() -> bool:
+    auth_user = get_current_auth_user()
+    return bool(auth_user and auth_user.get("id"))
+
+
+def extract_auth_user(user: object) -> dict[str, str] | None:
+    user_id = getattr(user, "id", None)
+    if not user_id:
+        return None
+    email = getattr(user, "email", "") or ""
+    return {
+        "id": str(user_id),
+        "email": str(email),
+    }
+
+
+def persist_auth_session(session: object | None) -> None:
+    if session is None:
+        return
+    st.session_state["supabase_access_token"] = getattr(session, "access_token", None)
+    st.session_state["supabase_refresh_token"] = getattr(session, "refresh_token", None)
+
+
+def clear_auth_state() -> None:
+    st.session_state["supabase_access_token"] = None
+    st.session_state["supabase_refresh_token"] = None
+    st.session_state["auth_user"] = None
+    st.session_state["saved_scenarios_loaded_for_user"] = None
+    st.session_state["saved_scenarios_dirty"] = False
+
+
+def sync_active_saved_scenarios(scenarios: list[dict[str, object]]) -> None:
+    st.session_state["saved_scenarios"] = scenarios
+    valid_ids = {str(scenario.get("id")) for scenario in scenarios}
+    st.session_state["scenario_compare_ids"] = [
+        scenario_id
+        for scenario_id in st.session_state.get("scenario_compare_ids", [])
+        if scenario_id in valid_ids
+    ]
+
+
+def use_guest_saved_scenarios() -> None:
+    sync_active_saved_scenarios(list(st.session_state.get("guest_saved_scenarios", [])))
+    st.session_state["scenario_storage_mode"] = "guest"
+    st.session_state["saved_scenarios_loaded_for_user"] = None
+    st.session_state["saved_scenarios_dirty"] = False
+
+
+def get_authenticated_supabase_client() -> Client:
+    client = create_supabase_client_or_none()
+    if client is None:
+        raise RuntimeError(get_supabase_unavailable_reason() or "Supabase is not configured.")
+
+    access_token = st.session_state.get("supabase_access_token")
+    refresh_token = st.session_state.get("supabase_refresh_token")
+    if not access_token or not refresh_token:
+        raise RuntimeError("No active Supabase session found. Please sign in again.")
+
+    session_response = client.auth.set_session(access_token, refresh_token)
+    persist_auth_session(getattr(session_response, "session", None))
+    return client
+
+
+def restore_auth_user_from_session() -> str | None:
+    if not st.session_state.get("supabase_access_token") or not st.session_state.get("supabase_refresh_token"):
+        st.session_state["auth_user"] = None
+        use_guest_saved_scenarios()
+        return None
+
+    client = create_supabase_client_or_none()
+    if client is None:
+        clear_auth_state()
+        use_guest_saved_scenarios()
+        return get_supabase_unavailable_reason()
+
+    try:
+        session_response = client.auth.set_session(
+            st.session_state["supabase_access_token"],
+            st.session_state["supabase_refresh_token"],
+        )
+        persist_auth_session(getattr(session_response, "session", None))
+        user_response = client.auth.get_user()
+        st.session_state["auth_user"] = extract_auth_user(getattr(user_response, "user", None))
+        persist_auth_state_to_registry()
+        return None
+    except Exception:
+        remove_browser_session_registry_entry()
+        clear_auth_state()
+        use_guest_saved_scenarios()
+        return "Your saved login session is no longer valid. Please sign in again."
+
+
+def app_scenario_to_supabase_row(
+    scenario: dict[str, object],
+    user_id: str,
+) -> dict[str, object]:
+    return {
+        "id": scenario.get("id"),
+        "user_id": user_id,
+        "scenario_name": scenario.get("name"),
+        "created_at": scenario.get("created_at"),
+        "context": scenario.get("context"),
+        "inputs": scenario.get("inputs"),
+        "projection_settings": scenario.get("projection_settings"),
+        "outputs": scenario.get("outputs"),
+    }
+
+
+def supabase_row_to_app_scenario(row: dict[str, object]) -> dict[str, object]:
+    return {
+        "id": row.get("id"),
+        "user_id": row.get("user_id"),
+        "created_at": row.get("created_at"),
+        "name": row.get("scenario_name", "Untitled"),
+        "context": row.get("context") or {},
+        "inputs": row.get("inputs") or {},
+        "projection_settings": row.get("projection_settings") or {},
+        "outputs": row.get("outputs") or {},
+    }
+
+
+def fetch_remote_saved_scenarios(client: Client, user_id: str) -> list[dict[str, object]]:
+    response = (
+        client.table(SUPABASE_SCENARIOS_TABLE)
+        .select(SUPABASE_SCENARIO_COLUMNS)
+        .eq("user_id", user_id)
+        .order("created_at", desc=True)
+        .execute()
+    )
+    rows = getattr(response, "data", None) or []
+    return [supabase_row_to_app_scenario(row) for row in rows]
+
+
+def refresh_saved_scenarios_for_current_user(*, force: bool = False) -> str | None:
+    auth_user = get_current_auth_user()
+    if not auth_user or not auth_user.get("id"):
+        use_guest_saved_scenarios()
+        return None
+
+    user_id = auth_user["id"]
+    already_loaded = st.session_state.get("saved_scenarios_loaded_for_user") == user_id
+    if already_loaded and not force and not st.session_state.get("saved_scenarios_dirty", False):
+        st.session_state["scenario_storage_mode"] = "supabase"
+        return None
+
+    try:
+        client = get_authenticated_supabase_client()
+        sync_active_saved_scenarios(fetch_remote_saved_scenarios(client, user_id))
+        st.session_state["scenario_storage_mode"] = "supabase"
+        st.session_state["saved_scenarios_loaded_for_user"] = user_id
+        st.session_state["saved_scenarios_dirty"] = False
+        return None
+    except Exception as exc:
+        return f"Could not load Supabase scenarios: {exc}"
+
+
 def initialize_app_state() -> None:
+    initial_mode, initial_section = hydrate_navigation_from_query_params()
     if "app_mode" not in st.session_state:
-        st.session_state["app_mode"] = "home"
+        st.session_state["app_mode"] = initial_mode
     if "app_section" not in st.session_state:
-        st.session_state["app_section"] = "dashboard"
+        st.session_state["app_section"] = initial_section
     if "projection_length" not in st.session_state:
         st.session_state["projection_length"] = 3
+    if "guest_saved_scenarios" not in st.session_state:
+        st.session_state["guest_saved_scenarios"] = []
     if "saved_scenarios" not in st.session_state:
-        st.session_state["saved_scenarios"] = []
+        st.session_state["saved_scenarios"] = list(st.session_state["guest_saved_scenarios"])
     if "scenario_compare_ids" not in st.session_state:
         st.session_state["scenario_compare_ids"] = []
+    if "show_auth_panel" not in st.session_state:
+        st.session_state["show_auth_panel"] = False
+    if "supabase_access_token" not in st.session_state:
+        st.session_state["supabase_access_token"] = None
+    if "supabase_refresh_token" not in st.session_state:
+        st.session_state["supabase_refresh_token"] = None
+    if "auth_user" not in st.session_state:
+        st.session_state["auth_user"] = None
+    if "scenario_storage_mode" not in st.session_state:
+        st.session_state["scenario_storage_mode"] = "guest"
+    if "saved_scenarios_loaded_for_user" not in st.session_state:
+        st.session_state["saved_scenarios_loaded_for_user"] = None
+    if "saved_scenarios_dirty" not in st.session_state:
+        st.session_state["saved_scenarios_dirty"] = False
+    if "browser_session_id" not in st.session_state:
+        st.session_state["browser_session_id"] = get_query_param_value(BROWSER_SESSION_QUERY_PARAM)
+    if "loaded_scenario_notice" not in st.session_state:
+        st.session_state["loaded_scenario_notice"] = None
 
 
 def go_to_home() -> None:
     st.session_state["app_mode"] = "home"
+    persist_browser_state_to_query_params()
 
 
 def go_to_app_section(section: str) -> None:
     st.session_state["app_mode"] = "app"
     st.session_state["app_section"] = section
+    persist_browser_state_to_query_params()
 
 
 def sync_nav_state() -> None:
     selected_label = st.session_state.get("app_nav_label", "Projection Dashboard")
     st.session_state["app_section"] = APP_SECTIONS.get(selected_label, "dashboard")
+    st.session_state["app_mode"] = "app"
+    persist_browser_state_to_query_params()
 
 
 def render_sidebar_navigation() -> None:
@@ -1172,9 +1530,46 @@ def build_saved_scenario_record(
 
 
 def save_scenario_record(record: dict[str, object]) -> None:
-    saved_scenarios = list(st.session_state.get("saved_scenarios", []))
+    if is_authenticated_user():
+        auth_user = get_current_auth_user()
+        if not auth_user or not auth_user.get("id"):
+            raise RuntimeError("No authenticated user is available for scenario storage.")
+
+        client = get_authenticated_supabase_client()
+        row = app_scenario_to_supabase_row(record, auth_user["id"])
+        response = (
+            client.table(SUPABASE_SCENARIOS_TABLE)
+            .insert(row)
+            .select(SUPABASE_SCENARIO_COLUMNS)
+            .execute()
+        )
+        rows = getattr(response, "data", None) or []
+        stored_scenario = supabase_row_to_app_scenario(rows[0]) if rows else {**record, "user_id": auth_user["id"]}
+        saved_scenarios = list(st.session_state.get("saved_scenarios", []))
+        saved_scenarios.insert(0, stored_scenario)
+        sync_active_saved_scenarios(saved_scenarios)
+        st.session_state["saved_scenarios_loaded_for_user"] = auth_user["id"]
+        st.session_state["saved_scenarios_dirty"] = False
+        st.session_state["scenario_storage_mode"] = "supabase"
+        return
+
+    saved_scenarios = list(st.session_state.get("guest_saved_scenarios", []))
     saved_scenarios.insert(0, record)
-    st.session_state["saved_scenarios"] = saved_scenarios
+    st.session_state["guest_saved_scenarios"] = saved_scenarios
+    sync_active_saved_scenarios(saved_scenarios)
+    st.session_state["scenario_storage_mode"] = "guest"
+
+
+def set_loaded_scenario_notice(scenario: dict[str, object]) -> None:
+    context = scenario.get("context", {})
+    projection_settings = scenario.get("projection_settings", {})
+    st.session_state["loaded_scenario_notice"] = {
+        "name": scenario.get("name", "Untitled"),
+        "district": context.get("district", "N/A"),
+        "year": context.get("year", "N/A"),
+        "model_name": context.get("model_name", "N/A"),
+        "years": projection_settings.get("years", "N/A"),
+    }
 
 
 def load_scenario_into_state(scenario: dict[str, object]) -> None:
@@ -1209,17 +1604,43 @@ def load_scenario_into_state(scenario: dict[str, object]) -> None:
     st.session_state[PROJECTION_CONTROL_KEYS["gini"]] = gini_change
     st.session_state["projection_length"] = int(projection_settings.get("years", 3))
     st.session_state["last_loaded_scenario_name"] = scenario.get("name", "")
+    set_loaded_scenario_notice(scenario)
+    persist_browser_state_to_query_params()
 
 
 def delete_saved_scenario(scenario_id: str) -> None:
-    st.session_state["saved_scenarios"] = [
+    if is_authenticated_user():
+        auth_user = get_current_auth_user()
+        if not auth_user or not auth_user.get("id"):
+            raise RuntimeError("No authenticated user is available for scenario deletion.")
+
+        client = get_authenticated_supabase_client()
+        (
+            client.table(SUPABASE_SCENARIOS_TABLE)
+            .delete()
+            .eq("id", scenario_id)
+            .eq("user_id", auth_user["id"])
+            .execute()
+        )
+        remaining = [
+            scenario
+            for scenario in st.session_state.get("saved_scenarios", [])
+            if scenario.get("id") != scenario_id
+        ]
+        sync_active_saved_scenarios(remaining)
+        st.session_state["saved_scenarios_loaded_for_user"] = auth_user["id"]
+        st.session_state["saved_scenarios_dirty"] = False
+        st.session_state["scenario_storage_mode"] = "supabase"
+        return
+
+    remaining = [
         scenario
-        for scenario in st.session_state.get("saved_scenarios", [])
+        for scenario in st.session_state.get("guest_saved_scenarios", [])
         if scenario.get("id") != scenario_id
     ]
-    st.session_state["scenario_compare_ids"] = [
-        sid for sid in st.session_state.get("scenario_compare_ids", []) if sid != scenario_id
-    ]
+    st.session_state["guest_saved_scenarios"] = remaining
+    sync_active_saved_scenarios(remaining)
+    st.session_state["scenario_storage_mode"] = "guest"
 
 
 @st.cache_data
@@ -1258,6 +1679,239 @@ def go_to_dashboard() -> None:
     go_to_app_section("dashboard")
 
 
+def open_auth_panel() -> None:
+    st.session_state["show_auth_panel"] = True
+
+
+def close_auth_panel() -> None:
+    st.session_state["show_auth_panel"] = False
+
+
+def handle_auth_login(email: str, password: str) -> tuple[bool, str]:
+    client = create_supabase_client_or_none()
+    if client is None:
+        return False, get_supabase_unavailable_reason() or "Supabase is not configured."
+
+    response = client.auth.sign_in_with_password(
+        {
+            "email": email.strip(),
+            "password": password,
+        }
+    )
+    session = getattr(response, "session", None)
+    user = extract_auth_user(getattr(response, "user", None))
+    if session is None or user is None:
+        return False, "Login completed without an active session. Please try again."
+
+    persist_auth_session(session)
+    st.session_state["auth_user"] = user
+    st.session_state["saved_scenarios_dirty"] = True
+    ensure_browser_session_id()
+    persist_auth_state_to_registry()
+    close_auth_panel()
+    refresh_error = refresh_saved_scenarios_for_current_user(force=True)
+    if refresh_error:
+        return False, refresh_error
+    persist_browser_state_to_query_params()
+    return True, f"Signed in as {user.get('email') or 'your account'}."
+
+
+def handle_auth_sign_up(email: str, password: str) -> tuple[bool, str]:
+    client = create_supabase_client_or_none()
+    if client is None:
+        return False, get_supabase_unavailable_reason() or "Supabase is not configured."
+
+    response = client.auth.sign_up(
+        {
+            "email": email.strip(),
+            "password": password,
+        }
+    )
+    session = getattr(response, "session", None)
+    user = extract_auth_user(getattr(response, "user", None))
+    if session is not None and user is not None:
+        persist_auth_session(session)
+        st.session_state["auth_user"] = user
+        st.session_state["saved_scenarios_dirty"] = True
+        ensure_browser_session_id()
+        persist_auth_state_to_registry()
+        close_auth_panel()
+        refresh_error = refresh_saved_scenarios_for_current_user(force=True)
+        if refresh_error:
+            return False, refresh_error
+        persist_browser_state_to_query_params()
+        return True, f"Account created for {user.get('email') or 'your email'}."
+
+    if user is not None:
+        return True, (
+            "Account created. Supabase requires email confirmation before login for this project. "
+            "Check your inbox, then sign in."
+        )
+    return False, "Sign up did not return a usable user record."
+
+
+def handle_auth_logout() -> tuple[bool, str]:
+    logout_error: str | None = None
+    if st.session_state.get("supabase_access_token") and st.session_state.get("supabase_refresh_token"):
+        try:
+            client = get_authenticated_supabase_client()
+            client.auth.sign_out()
+        except Exception as exc:
+            logout_error = f"Supabase sign-out returned an error: {exc}"
+
+    remove_browser_session_registry_entry()
+    clear_auth_state()
+    st.session_state["browser_session_id"] = None
+    use_guest_saved_scenarios()
+    go_to_home()
+    if logout_error:
+        return False, logout_error
+    return True, "Signed out. Guest scenarios remain available in this browser session."
+
+
+def render_auth_controls() -> None:
+    unavailable_reason = get_supabase_unavailable_reason()
+    auth_user = get_current_auth_user()
+
+    if auth_user:
+        st.markdown(
+            (
+                "<div class='section-note'><strong>Authenticated session:</strong> "
+                f"Signed in as {html.escape(auth_user.get('email', ''))}. "
+                "Scenario saves now sync with Supabase and remain available after you log in again."
+                "</div>"
+            ),
+            unsafe_allow_html=True,
+        )
+        action_col1, action_col2 = st.columns([0.55, 0.45], gap="small")
+        with action_col1:
+            st.button(
+                "Continue to Dashboard",
+                type="primary",
+                use_container_width=True,
+                on_click=go_to_dashboard,
+                key="continue_dashboard_home_auth",
+            )
+        with action_col2:
+            if st.button("Logout", use_container_width=True, key="logout_home_auth"):
+                _, message = handle_auth_logout()
+                st.info(message)
+                st.rerun()
+        return
+
+    action_col1, action_col2 = st.columns([0.55, 0.45], gap="small")
+    with action_col1:
+        st.button(
+            "Continue as Guest",
+            type="primary",
+            use_container_width=True,
+            on_click=go_to_dashboard,
+            key="continue_guest_home",
+        )
+    with action_col2:
+        st.button(
+            "Login / Sign Up",
+            use_container_width=True,
+            on_click=open_auth_panel,
+            key="open_auth_panel_home",
+            disabled=unavailable_reason is not None,
+        )
+
+    if unavailable_reason:
+        st.caption("Guest access remains available. Configure Supabase to enable account sign-in.")
+        st.warning(unavailable_reason)
+        return
+
+    if not st.session_state.get("show_auth_panel"):
+        st.caption("Guest mode stores scenarios only in this browser session.")
+        return
+
+    st.markdown("<div class='section-note'>Email/password access uses Supabase Auth only.</div>", unsafe_allow_html=True)
+    login_tab, signup_tab = st.tabs(["Login", "Sign Up"])
+
+    with login_tab:
+        with st.form("login_form"):
+            login_email = st.text_input("Email", key="login_email_input")
+            login_password = st.text_input("Password", type="password", key="login_password_input")
+            submitted = st.form_submit_button("Login", use_container_width=True)
+        if submitted:
+            if not login_email.strip() or not login_password:
+                st.error("Email and password are required.")
+            else:
+                try:
+                    success, message = handle_auth_login(login_email, login_password)
+                except Exception as exc:
+                    success, message = False, str(exc)
+                if success:
+                    go_to_dashboard()
+                    st.rerun()
+                st.error(message)
+
+    with signup_tab:
+        with st.form("signup_form"):
+            signup_email = st.text_input("Email", key="signup_email_input")
+            signup_password = st.text_input("Password", type="password", key="signup_password_input")
+            signup_password_confirm = st.text_input(
+                "Confirm password",
+                type="password",
+                key="signup_password_confirm_input",
+            )
+            submitted = st.form_submit_button("Create account", use_container_width=True)
+        if submitted:
+            if not signup_email.strip() or not signup_password:
+                st.error("Email and password are required.")
+            elif signup_password != signup_password_confirm:
+                st.error("Passwords do not match.")
+            else:
+                try:
+                    success, message = handle_auth_sign_up(signup_email, signup_password)
+                except Exception as exc:
+                    success, message = False, str(exc)
+                if success and is_authenticated_user():
+                    go_to_dashboard()
+                    st.rerun()
+                if success:
+                    st.success(message)
+                else:
+                    st.error(message)
+
+    if st.button("Close", key="close_auth_panel_home"):
+        close_auth_panel()
+        st.rerun()
+
+
+def render_sidebar_auth_status() -> None:
+    _sidebar_section_kicker("Access")
+    auth_user = get_current_auth_user()
+    if auth_user:
+        st.sidebar.markdown(f"**Signed in**  \n{auth_user.get('email', '')}")
+        st.sidebar.caption("Scenario saves sync to Supabase and can be reopened on future logins.")
+        if st.sidebar.button("Logout", use_container_width=True, key="sidebar_logout"):
+            handle_auth_logout()
+            st.rerun()
+    else:
+        st.sidebar.caption("Guest mode is active. Saved scenarios stay only in this browser session.")
+    st.sidebar.divider()
+
+
+def render_loaded_scenario_notice() -> None:
+    notice = st.session_state.pop("loaded_scenario_notice", None)
+    if not isinstance(notice, dict):
+        return
+
+    message = (
+        "Loaded scenario "
+        f"**{notice.get('name', 'Untitled')}** for "
+        f"**{notice.get('district', 'N/A')}** ({notice.get('year', 'N/A')}). "
+        "The sidebar inputs and projection settings now reflect the saved scenario."
+    )
+    st.success(message)
+    st.caption(
+        f"Model: {notice.get('model_name', 'N/A')} | "
+        f"Projection length: {notice.get('years', 'N/A')} year(s)"
+    )
+
+
 def render_homepage() -> None:
     st.markdown("<div class='landing-shell'>", unsafe_allow_html=True)
     left_col, right_col = st.columns([1.05, 0.95], gap="large")
@@ -1286,24 +1940,9 @@ def render_homepage() -> None:
             "</div>",
             unsafe_allow_html=True,
         )
-
-        button_col, note_col = st.columns([0.62, 0.38], gap="small")
-        with button_col:
-            st.markdown("<div class='launch-button'>", unsafe_allow_html=True)
-            st.button(
-                "Launch Dashboard",
-                type="primary",
-                use_container_width=True,
-                on_click=go_to_dashboard,
-                key="launch_dashboard_home",
-            )
-            st.markdown("</div>", unsafe_allow_html=True)
-        with note_col:
-            st.markdown(
-                "<div class='cta-note'>View Project Overview</div>"
-                "<div class='cta-link'>A concise introduction before analytics.</div>",
-                unsafe_allow_html=True,
-            )
+        st.markdown("<div class='launch-button'>", unsafe_allow_html=True)
+        render_auth_controls()
+        st.markdown("</div>", unsafe_allow_html=True)
 
     with right_col:
         st.markdown(
@@ -1354,23 +1993,38 @@ def render_homepage() -> None:
 
 
 def render_my_scenarios_page() -> None:
+    is_authenticated = is_authenticated_user()
+    storage_note = (
+        "Saved scenarios sync with your Supabase account so you can revisit, compare, and refine them across sessions."
+        if is_authenticated
+        else "Saved scenarios stay available only during the current guest session so you can revisit, compare, and refine them."
+    )
     st.markdown(
         "<div class='section-note'><strong>Reusable workflow:</strong> "
-        "Saved scenarios stay available during the current session so you can revisit, compare, and refine them."
+        f"{html.escape(storage_note)}"
         "</div>",
         unsafe_allow_html=True,
     )
     st.markdown("<div class='section-title'>My Scenarios</div>", unsafe_allow_html=True)
     st.markdown(
         "<div class='section-subtitle'>"
-        "Save projection setups from the dashboard, reload them later in the same session, and compare different intervention paths side by side."
+        "Save projection setups from the dashboard, reload them later, and compare different intervention paths side by side."
         "</div>",
         unsafe_allow_html=True,
     )
 
+    if is_authenticated and st.session_state.get("guest_saved_scenarios"):
+        st.caption(
+            "Guest scenarios created before login are still stored locally in this browser session. "
+            "They are not automatically copied into Supabase."
+        )
+
     saved_scenarios = list(st.session_state.get("saved_scenarios", []))
     if not saved_scenarios:
-        st.info("No saved scenarios yet. Save a projection from the dashboard to start building your scenario library.")
+        if is_authenticated:
+            st.info("No Supabase scenarios yet. Save a projection from the dashboard to start building your scenario library.")
+        else:
+            st.info("No guest scenarios yet. Save a projection from the dashboard to start building your scenario library.")
         st.button(
             "Open Projection Dashboard",
             type="primary",
@@ -1513,8 +2167,12 @@ def render_my_scenarios_page() -> None:
                 st.rerun()
         with action_col2:
             if st.button("Delete", key=f"delete_{scenario['id']}", use_container_width=True):
-                delete_saved_scenario(str(scenario["id"]))
-                st.rerun()
+                try:
+                    delete_saved_scenario(str(scenario["id"]))
+                except Exception as exc:
+                    st.error(f"Could not delete scenario: {exc}")
+                else:
+                    st.rerun()
 
 
 def render_methodology_page() -> None:
@@ -1527,7 +2185,7 @@ def render_methodology_page() -> None:
     st.markdown("<div class='section-title'>Methodology & About</div>", unsafe_allow_html=True)
     st.markdown(
         "<div class='section-subtitle'>"
-        "The app is designed as a reusable projection workspace. It preserves the original dashboard logic while adding session-based scenario saving for future account and database integration."
+        "The app is designed as a reusable projection workspace. It preserves the original dashboard logic while supporting guest session saves and authenticated Supabase-backed scenario storage."
         "</div>",
         unsafe_allow_html=True,
     )
@@ -1540,7 +2198,7 @@ def render_methodology_page() -> None:
         <br/><br/>
         <strong>Projection method:</strong> Multi-year projections apply user-defined annual indicator changes and score each projected year with the unchanged trained model.
         <br/><br/>
-        <strong>Saved scenarios:</strong> Scenarios live only in Streamlit session state for now. The saved record structure is intentionally close to a future database row so it can later connect to authentication and cloud storage.
+        <strong>Saved scenarios:</strong> Guest users store scenarios in Streamlit session state only. Authenticated users store the same scenario payload structure in Supabase for cross-session reuse.
         <br/><br/>
         <strong>Interpretation:</strong> These outputs support scenario exploration and comparison. They should not be read as causal forecasts or policy effect estimates.
         </div>
@@ -1781,24 +2439,36 @@ def main() -> None:
     st.set_page_config(page_title="Financial Mobility Simulation Dashboard", layout="wide")
     apply_custom_style()
     initialize_app_state()
+    hydrate_auth_state_from_registry()
+    auth_restore_error = restore_auth_user_from_session()
+    scenarios_refresh_error = refresh_saved_scenarios_for_current_user()
     if st.session_state["app_mode"] == "home":
+        if auth_restore_error:
+            st.warning(auth_restore_error)
+        if scenarios_refresh_error:
+            st.warning(scenarios_refresh_error)
         render_homepage()
         return
 
+    render_sidebar_auth_status()
     render_sidebar_navigation()
+    if auth_restore_error:
+        st.warning(auth_restore_error)
+    if scenarios_refresh_error:
+        st.warning(scenarios_refresh_error)
     st.markdown("<span class='pill'>Civic-tech analytics</span>", unsafe_allow_html=True)
     st.title("Financial Mobility Simulation Dashboard")
     app_section = st.session_state.get("app_section", "dashboard")
     if app_section == "scenarios":
         st.markdown(
-            "<p class='page-tagline'>Manage saved projection scenarios and compare intervention paths within the current session.</p>",
+            "<p class='page-tagline'>Manage saved projection scenarios and compare intervention paths across guest or authenticated storage.</p>",
             unsafe_allow_html=True,
         )
         render_my_scenarios_page()
         return
     if app_section == "about":
         st.markdown(
-            "<p class='page-tagline'>Review the projection method, modeling constraints, and session-based scenario workflow.</p>",
+            "<p class='page-tagline'>Review the projection method, modeling constraints, and guest or Supabase-backed scenario workflow.</p>",
             unsafe_allow_html=True,
         )
         render_methodology_page()
@@ -1808,6 +2478,7 @@ def main() -> None:
         "and clear explanations.</p>",
         unsafe_allow_html=True,
     )
+    render_loaded_scenario_notice()
 
     try:
         df = load_data()
@@ -2268,8 +2939,13 @@ def main() -> None:
             },
         )
         st.markdown("<div class='section-title'>Save Current Scenario</div>", unsafe_allow_html=True)
+        save_caption = (
+            "Save this projection setup to Supabase so you can reload it later from My Scenarios after logging in again."
+            if is_authenticated_user()
+            else "Save this projection setup to the current guest session so you can reload it later or compare it in My Scenarios."
+        )
         st.caption(
-            "Save this projection setup to your session so you can reload it later or compare it in My Scenarios."
+            save_caption
         )
         scenario_name = st.text_input(
             "Scenario name",
@@ -2294,8 +2970,12 @@ def main() -> None:
                 float(actual_income),
                 projection_df,
             )
-            save_scenario_record(scenario_record)
-            st.success(f"Saved scenario: {resolved_name}")
+            try:
+                save_scenario_record(scenario_record)
+            except Exception as exc:
+                st.error(f"Could not save scenario: {exc}")
+            else:
+                st.success(f"Saved scenario: {resolved_name}")
 
     with tabs[2]:
         st.subheader("Model comparison")
