@@ -137,6 +137,12 @@ APP_SECTIONS = {
 ROUTE_QUERY_PARAM = "page"
 BROWSER_SESSION_QUERY_PARAM = "browser_session"
 HOME_ROUTE = "home"
+SUPABASE_AUTH_CODE_QUERY_PARAM = "code"
+SUPABASE_AUTH_TOKEN_HASH_QUERY_PARAM = "token_hash"
+SUPABASE_AUTH_TYPE_QUERY_PARAM = "type"
+SUPABASE_AUTH_ACCESS_TOKEN_QUERY_PARAM = "access_token"
+SUPABASE_AUTH_REFRESH_TOKEN_QUERY_PARAM = "refresh_token"
+SUPABASE_AUTH_ERROR_QUERY_PARAM = "error_description"
 SUPABASE_SCENARIOS_TABLE = "scenarios"
 SUPABASE_SCENARIO_COLUMNS = (
     "id, user_id, scenario_name, created_at, context, inputs, projection_settings, outputs"
@@ -1300,6 +1306,80 @@ def restore_auth_user_from_session() -> str | None:
         return "Your saved login session is no longer valid. Please sign in again."
 
 
+def normalize_supabase_verification_type(value: str | None) -> str | None:
+    if not value:
+        return None
+    normalized = value.strip().lower()
+    deprecated_aliases = {
+        "signup": "email",
+        "magiclink": "email",
+    }
+    return deprecated_aliases.get(normalized, normalized)
+
+
+def handle_supabase_auth_callback() -> str | None:
+    auth_code = get_query_param_value(SUPABASE_AUTH_CODE_QUERY_PARAM)
+    token_hash = get_query_param_value(SUPABASE_AUTH_TOKEN_HASH_QUERY_PARAM)
+    access_token = get_query_param_value(SUPABASE_AUTH_ACCESS_TOKEN_QUERY_PARAM)
+    refresh_token = get_query_param_value(SUPABASE_AUTH_REFRESH_TOKEN_QUERY_PARAM)
+    callback_error = get_query_param_value(SUPABASE_AUTH_ERROR_QUERY_PARAM)
+    verification_type = normalize_supabase_verification_type(
+        get_query_param_value(SUPABASE_AUTH_TYPE_QUERY_PARAM)
+    )
+
+    if not any([auth_code, token_hash, access_token, refresh_token, callback_error]):
+        return None
+
+    if callback_error:
+        persist_browser_state_to_query_params()
+        return f"Supabase email verification failed: {callback_error}"
+
+    client = create_supabase_client_or_none()
+    if client is None:
+        return get_supabase_unavailable_reason() or "Supabase is not configured."
+
+    try:
+        session_response = None
+        if auth_code:
+            session_response = client.auth.exchange_code_for_session({"auth_code": auth_code})
+        elif token_hash and verification_type:
+            session_response = client.auth.verify_otp(
+                {
+                    "token_hash": token_hash,
+                    "type": verification_type,
+                }
+            )
+        elif access_token and refresh_token:
+            session_response = client.auth.set_session(access_token, refresh_token)
+        else:
+            persist_browser_state_to_query_params()
+            return "Supabase redirected back without a usable verification payload."
+
+        session = getattr(session_response, "session", None)
+        user = extract_auth_user(getattr(session_response, "user", None))
+        if session is None:
+            persist_browser_state_to_query_params()
+            return "Supabase verification completed without an active session. Please sign in."
+
+        persist_auth_session(session)
+        if user is None:
+            user_response = client.auth.get_user()
+            user = extract_auth_user(getattr(user_response, "user", None))
+        st.session_state["auth_user"] = user
+        st.session_state["saved_scenarios_dirty"] = True
+        ensure_browser_session_id()
+        persist_auth_state_to_registry()
+        close_auth_panel()
+        persist_browser_state_to_query_params()
+        refresh_error = refresh_saved_scenarios_for_current_user(force=True)
+        if refresh_error:
+            return refresh_error
+        return None
+    except Exception as exc:
+        persist_browser_state_to_query_params()
+        return f"Supabase auth callback could not be completed: {exc}"
+
+
 def app_scenario_to_supabase_row(
     scenario: dict[str, object],
     user_id: str,
@@ -2439,10 +2519,13 @@ def main() -> None:
     st.set_page_config(page_title="Financial Mobility Simulation Dashboard", layout="wide")
     apply_custom_style()
     initialize_app_state()
+    auth_callback_error = handle_supabase_auth_callback()
     hydrate_auth_state_from_registry()
     auth_restore_error = restore_auth_user_from_session()
     scenarios_refresh_error = refresh_saved_scenarios_for_current_user()
     if st.session_state["app_mode"] == "home":
+        if auth_callback_error:
+            st.warning(auth_callback_error)
         if auth_restore_error:
             st.warning(auth_restore_error)
         if scenarios_refresh_error:
@@ -2452,6 +2535,8 @@ def main() -> None:
 
     render_sidebar_auth_status()
     render_sidebar_navigation()
+    if auth_callback_error:
+        st.warning(auth_callback_error)
     if auth_restore_error:
         st.warning(auth_restore_error)
     if scenarios_refresh_error:
