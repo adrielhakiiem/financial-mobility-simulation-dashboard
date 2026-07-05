@@ -2063,9 +2063,9 @@ def render_homepage() -> None:
             "<div class='preview-grid-line'><span>Model comparison</span><span class='preview-grid-chip'>Metrics</span></div>"
             "</div>"
             "</div>"
-            "</div>"
-            "<div class='preview-note'>Designed to feel like the actual dashboard while keeping the opening screen compact and presentation-ready.</div>"
             "</div>",
+            #"<div class='preview-note'>Designed to feel like the actual dashboard while keeping the opening screen compact and presentation-ready.</div>"
+            #"</div>",
             unsafe_allow_html=True,
         )
 
