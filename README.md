@@ -147,10 +147,6 @@ streamlit run app.py
 - Integrate explainable AI techniques (e.g., SHAP)
 - Deploy as a scalable cloud service with API support
 
-## Live Demo
-
-*(add your deployed Streamlit URL)*
-
 ## Repository
 
 https://github.com/adrielhakiiem/financial-mobility-simulation-dashboard
